@@ -1,15 +1,17 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import useAuthStore from './store/authStore';
 import { connectSocket } from './socket/socketClient';
 
-// Pages
+// Lazy load dashboards
+const UserDashboard = lazy(() => import('./pages/user/UserDashboard'));
+const MechanicDashboard = lazy(() => import('./pages/mechanic/MechanicDashboard'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+
+// Auth Pages
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
-import UserDashboard from './pages/user/UserDashboard';
-import MechanicDashboard from './pages/mechanic/MechanicDashboard';
-import AdminDashboard from './pages/admin/AdminDashboard';
 import NotFound from './components/common/NotFound';
 import ProtectedRoute from './components/common/ProtectedRoute';
 
@@ -30,7 +32,7 @@ function App() {
   };
 
   return (
-    <BrowserRouter>
+    <Router>
       <Toaster
         position="top-right"
         toastOptions={{
@@ -44,41 +46,49 @@ function App() {
           error: { iconTheme: { primary: '#DC3545', secondary: '#fff' } },
         }}
       />
-      <Routes>
-        {/* Public routes */}
-        <Route path="/login" element={
-          token ? <Navigate to={getHomePath()} /> : <LoginPage />
-        } />
-        <Route path="/register" element={
-          token ? <Navigate to={getHomePath()} /> : <RegisterPage />
-        } />
+      <div className="font-sans min-h-screen bg-light">
+        <Suspense fallback={
+          <div className="min-h-screen flex items-center justify-center bg-light">
+            <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        }>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/login" element={
+              token ? <Navigate to={getHomePath()} /> : <LoginPage />
+            } />
+            <Route path="/register" element={
+              token ? <Navigate to={getHomePath()} /> : <RegisterPage />
+            } />
 
-        {/* User routes */}
-        <Route path="/dashboard/*" element={
-          <ProtectedRoute allowedRoles={['user']}>
-            <UserDashboard />
-          </ProtectedRoute>
-        } />
+            {/* User routes */}
+            <Route path="/dashboard/*" element={
+              <ProtectedRoute allowedRoles={['user']}>
+                <UserDashboard />
+              </ProtectedRoute>
+            } />
 
-        {/* Mechanic routes */}
-        <Route path="/mechanic/*" element={
-          <ProtectedRoute allowedRoles={['mechanic']}>
-            <MechanicDashboard />
-          </ProtectedRoute>
-        } />
+            {/* Mechanic routes */}
+            <Route path="/mechanic/*" element={
+              <ProtectedRoute allowedRoles={['mechanic']}>
+                <MechanicDashboard />
+              </ProtectedRoute>
+            } />
 
-        {/* Admin routes */}
-        <Route path="/admin/*" element={
-          <ProtectedRoute allowedRoles={['admin']}>
-            <AdminDashboard />
-          </ProtectedRoute>
-        } />
+            {/* Admin routes */}
+            <Route path="/admin/*" element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminDashboard />
+              </ProtectedRoute>
+            } />
 
-        {/* Default redirect */}
-        <Route path="/" element={<Navigate to={getHomePath()} />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
+            {/* Default redirect */}
+            <Route path="/" element={<Navigate to={getHomePath()} />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
+      </div>
+    </Router>
   );
 }
 

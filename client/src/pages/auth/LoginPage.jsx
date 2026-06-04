@@ -38,19 +38,18 @@ const LoginPage = () => {
                         rounded-full animate-pulse" />
       </div>
 
-      <div className="w-full max-w-md animate-slide-up relative z-10">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16
-                          bg-primary rounded-2xl mb-4 shadow-lg">
-            <MdDirectionsCar className="text-white text-3xl" />
+      <div className="w-full max-w-md">
+        {/* Logo Section */}
+        <div className="text-center mb-6 sm:mb-8">
+          <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-primary rounded-xl sm:rounded-2xl mb-3 sm:mb-4 shadow-lg">
+            <span className="text-2xl sm:text-3xl text-white">🚗</span>
           </div>
-          <h1 className="text-3xl font-bold text-white">RoadAssist</h1>
-          <p className="text-gray-400 mt-1">Your roadside rescue partner</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-wide">RoadAssist</h1>
+          <p className="text-gray-400 mt-2 text-sm">Welcome back to the platform</p>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-3xl shadow-2xl p-8">
+        {/* Card Section */}
+        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-6 sm:p-8">
           <h2 className="text-2xl font-bold text-dark mb-2">Welcome back</h2>
           <p className="text-muted mb-6">Sign in to your account</p>
 

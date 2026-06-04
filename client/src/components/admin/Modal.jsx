@@ -20,14 +20,15 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4">
       <div 
         className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fade-in" 
         onClick={onClose}
       ></div>
       
-      <div className={`relative bg-white rounded-2xl shadow-xl w-full ${sizes[size]} animate-slide-up max-h-[90vh] flex flex-col`}>
-        <div className="flex justify-between items-center p-6 border-b border-gray-100">
+      <div className={`relative bg-white rounded-t-3xl md:rounded-2xl shadow-xl w-full ${sizes[size]} animate-slide-up max-h-[90vh] flex flex-col`}>
+        <div className="w-12 h-1 bg-gray-300 rounded-full mx-auto mt-4 mb-2 md:hidden"></div>
+        <div className="flex justify-between items-center p-6 border-b border-gray-100 pt-2 md:pt-6">
           <h2 className="text-xl font-bold text-dark">{title}</h2>
           <button 
             onClick={onClose}
