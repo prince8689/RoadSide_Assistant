@@ -3,12 +3,16 @@ import { getSocket } from '../socket/socketClient';
 import useNotificationStore from '../store/notificationStore';
 import useRequestStore from '../store/requestStore';
 import useMechanicStore from '../store/mechanicStore';
+import useAdminStore from '../store/adminStore';
+import useAuthStore from '../store/authStore';
 import { toast } from 'react-hot-toast';
 
 const useSocket = () => {
   const { addNotification, setUnreadCount } = useNotificationStore();
   const { updateActiveRequest, updateMechanicLocation } = useRequestStore();
   const { addNewRequest, removeFromAvailable, clearActiveJob } = useMechanicStore();
+  const { updateLiveStats, fetchRequests } = useAdminStore();
+  const { user } = useAuthStore();
 
   useEffect(() => {
     const socket = getSocket();
@@ -52,6 +56,18 @@ const useSocket = () => {
       clearActiveJob();
     });
 
+    // Admin Events
+    if (user?.role === 'admin') {
+      socket.on('admin:stats:update', (data) => {
+        updateLiveStats(data);
+      });
+
+      socket.on('admin:request:new', (data) => {
+        toast.success(`New ${data.serviceType || 'Service'} request received`);
+        fetchRequests(); 
+      });
+    }
+
     return () => {
       socket.off('notification:new');
       socket.off('notification:unread_count');
@@ -60,8 +76,12 @@ const useSocket = () => {
       socket.off('request:new');
       socket.off('request:cancelled');
       socket.off('job:completed');
+      if (user?.role === 'admin') {
+        socket.off('admin:stats:update');
+        socket.off('admin:request:new');
+      }
     };
-  }, []);
+  }, [user?.role]);
 };
 
 export default useSocket;
