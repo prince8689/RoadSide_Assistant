@@ -9,6 +9,7 @@ const { validate: validateEnv } = require('./config/env');
 validateEnv();
 
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
 
@@ -38,9 +39,19 @@ const reviewRoutes = require('./modules/reviews/review.routes');
 const historyRoutes = require('./modules/history/history.routes');
 const notificationRoutes = require('./modules/notifications/notification.routes');
 const searchRoutes = require('./modules/search/search.routes');
+const trackingRoutes = require('./modules/tracking/tracking.routes');
+
+// Import auto cleanup job
+const { startCleanupJob } = require('./utils/locationCleanup');
 
 // ---- Initialize Express App ----
 const app = express();
+const server = http.createServer(app);
+
+// Initialize Socket.io
+const { initSocket } = require('./socket/socket');
+initSocket(server);
+
 const PORT = process.env.PORT || 5000;
 
 // ============================================
@@ -114,6 +125,26 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+app.get('/api/health/socket', (req, res) => {
+  try {
+    const { getIO } = require('./socket/socket');
+    const io = getIO();
+    const connectedSockets = io.engine.clientsCount;
+    const rooms = io.sockets.adapter.rooms.size;
+    res.json({
+      success: true,
+      data: {
+        connectedClients: connectedSockets,
+        totalRooms: rooms,
+        uptime: process.uptime(),
+        memoryUsage: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB'
+      }
+    });
+  } catch (error) {
+    res.status(503).json({ success: false, message: 'Socket.io not initialized or unavailable' });
+  }
+});
+
 // ============================================
 // API ROUTES (with route-specific rate limiting)
 // ============================================
@@ -133,6 +164,7 @@ app.use('/api/admin', generalLimiter, adminRoutes);
 app.use('/api/reviews', generalLimiter, reviewRoutes);
 app.use('/api/history', generalLimiter, historyRoutes);
 app.use('/api/notifications', generalLimiter, notificationRoutes);
+app.use('/api/tracking', generalLimiter, trackingRoutes);
 
 // ============================================
 // ERROR HANDLING
@@ -156,8 +188,8 @@ const startServer = async () => {
     // 2. Connect to Redis
     await connectRedis();
 
-    // 3. Start Express server
-    app.listen(PORT, () => {
+    // 3. Start HTTP server (which runs both Express and Socket.io)
+    server.listen(PORT, () => {
       logger.info('══════════════════════════════════════════');
       logger.info('🚗  ROADSIDE ASSIST API SERVER');
       logger.info('══════════════════════════════════════════');
@@ -165,8 +197,15 @@ const startServer = async () => {
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info(`API Base: http://localhost:${PORT}/api`);
       logger.info(`Health Check: http://localhost:${PORT}/api/health`);
+      logger.info(`Sockets: Enabled & Listening`);
       logger.info('══════════════════════════════════════════');
     });
+
+    // 4. Start Background Jobs
+    startCleanupJob();
+    const { getIO } = require('./socket/socket');
+    const { startAdminDashboardBroadcast } = require('./socket/adminDashboard');
+    startAdminDashboardBroadcast(getIO());
   } catch (error) {
     logger.error('Failed to start server:', error.message);
     process.exit(1);

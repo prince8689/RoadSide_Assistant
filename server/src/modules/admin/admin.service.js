@@ -13,6 +13,7 @@ const { AppError } = require('../../middleware/errorHandler');
 const { getPagination, formatPaginatedResponse } = require('../../utils/pagination');
 const { createNotification } = require('../notifications/notification.service');
 const NotificationMessages = require('../../utils/notificationHelper');
+const { emitDashboardUpdate } = require('../../utils/adminDashboardEmitter');
 
 // ============================================
 // ─── USER MANAGEMENT ────────────────────────
@@ -267,6 +268,9 @@ const verifyMechanic = async (mechanicProfileId, isVerified, rejectionReason) =>
     : NotificationMessages.MECHANIC_REJECTED(rejectionReason);
   
   await createNotification(profile.user_id, msg.title, msg.message, msg.type);
+
+  // Update Admin Dashboard
+  emitDashboardUpdate();
 
   return profile;
 };

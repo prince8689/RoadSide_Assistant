@@ -5,6 +5,8 @@
 const { query } = require('../../config/db');
 const { getPagination, formatPaginatedResponse } = require('../../utils/pagination');
 const { logger } = require('../../utils/logger');
+const { sendToUser } = require('../../socket/socketManager');
+const EVENTS = require('../../socket/events');
 
 /**
  * Create a single notification for a user.
@@ -23,7 +25,15 @@ const createNotification = async (userId, title, message, type) => {
        RETURNING *`,
       [userId, title, message, type]
     );
-    return result.rows[0];
+
+    const notification = result.rows[0];
+
+    // Emit socket events
+    sendToUser(userId, EVENTS.NEW_NOTIFICATION, notification);
+    const count = await getUnreadCount(userId);
+    sendToUser(userId, EVENTS.UNREAD_COUNT_UPDATE, { count });
+
+    return notification;
   } catch (error) {
     logger.error('Failed to create notification: ' + error.message);
     // Silent fail so main API flow doesn't break
@@ -167,6 +177,24 @@ const getUnreadCount = async (userId) => {
 };
 
 /**
+ * Get recent unread notifications for a user.
+ * 
+ * @param {string} userId - User UUID
+ * @param {number} limit - Max number of notifications to return
+ * @returns {Array} Array of notifications
+ */
+const getRecentUnread = async (userId, limit = 5) => {
+  const result = await query(
+    `SELECT * FROM notifications 
+     WHERE user_id = $1 AND is_read = false 
+     ORDER BY created_at DESC 
+     LIMIT $2`,
+    [userId, limit]
+  );
+  return result.rows;
+};
+
+/**
  * Delete a single notification.
  * 
  * @param {string} userId - User UUID (for ownership check)
@@ -195,6 +223,24 @@ const deleteAllRead = async (userId) => {
   return result.rowCount;
 };
 
+/**
+ * Get notifications since a specific time
+ * 
+ * @param {string} userId - User UUID
+ * @param {string} since - ISO date string
+ * @returns {Array} Array of notifications
+ */
+const getNotificationsSince = async (userId, since) => {
+  const result = await query(
+    `SELECT * FROM notifications 
+     WHERE user_id = $1 
+     AND created_at > $2 
+     ORDER BY created_at ASC`,
+    [userId, since]
+  );
+  return result.rows;
+};
+
 module.exports = {
   createNotification,
   createBulkNotifications,
@@ -202,6 +248,8 @@ module.exports = {
   markAsRead,
   markAllAsRead,
   getUnreadCount,
+  getRecentUnread,
+  getNotificationsSince,
   deleteNotification,
   deleteAllRead,
 };

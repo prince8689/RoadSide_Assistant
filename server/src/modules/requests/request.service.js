@@ -15,6 +15,12 @@ const { query, pool } = require('../../config/db');
 const { AppError } = require('../../middleware/errorHandler');
 const { createNotification, createBulkNotifications } = require('../notifications/notification.service');
 const NotificationMessages = require('../../utils/notificationHelper');
+const { sendRealTimeNotification } = require('../../utils/notificationHelper');
+const { sendToUser, sendToMechanic, sendToRequest, sendToAdmin } = require('../../socket/socketManager');
+const EVENTS = require('../../socket/events');
+const { redisClient } = require('../../config/redis');
+const { getNearbyMechanics } = require('../mechanics/mechanic.service');
+const { emitDashboardUpdate } = require('../../utils/adminDashboardEmitter');
 
 // ---- Statuses considered "active" (not finished) ----
 const ACTIVE_STATUSES = ['pending', 'accepted', 'en_route', 'arrived', 'in_progress'];
@@ -127,24 +133,68 @@ const createRequest = async (userId, data) => {
 
     await client.query('COMMIT');
 
-    // Notifications
-    const msg = NotificationMessages.REQUEST_CREATED(category.name);
-    await createNotification(userId, msg.title, msg.message, msg.type);
-
-    // Find nearby verified mechanics (Mock proximity for now)
-    const nearbyCheck = await pool.query(
-      'SELECT user_id FROM mechanic_profiles WHERE is_verified = true AND is_available = true'
-    );
-    if (nearbyCheck.rows.length > 0) {
-      const mechanicIds = nearbyCheck.rows.map(r => r.user_id);
-      const broadcastMsg = NotificationMessages.NEW_REQUEST_NEARBY(category.name, '5'); // Mock distance 5km
-      await createBulkNotifications(mechanicIds, broadcastMsg.title, broadcastMsg.message, broadcastMsg.type);
-    }
-
     // Enrich the response with vehicle and category info
     const request = result.rows[0];
     request.vehicle = vehicleCheck.rows[0];
     request.category = category;
+
+    // Notifications
+    const msg = NotificationMessages.REQUEST_CREATED(category.name);
+    await sendRealTimeNotification(userId, msg.title, msg.message, msg.type);
+
+    // Step 1: Find all nearby online mechanics (within 10km)
+    const nearbyMechanics = await getNearbyMechanics(breakdown_lat, breakdown_lng, 10);
+
+    // Step 2: For each nearby mechanic
+    for (const mechanic of nearbyMechanics) {
+      // Check if mechanic is online via Redis
+      const isOnline = await redisClient.get(`user:online:${mechanic.user_id}`);
+
+      // Step 3: Send real-time socket alert
+      sendToMechanic(mechanic.user_id, EVENTS.NEW_REQUEST, {
+        requestId: request.id,
+        serviceType: category.name,
+        location: { lat: breakdown_lat, lng: breakdown_lng, address: breakdown_address },
+        estimatedPrice: category.base_price,
+        distance: mechanic.distance_km,
+        vehicleDetails: { 
+          make: request.vehicle.make, 
+          model: request.vehicle.model, 
+          year: request.vehicle.year 
+        }
+      });
+
+      // Step 4: Also save notification to DB for offline mechanics
+      await sendRealTimeNotification(
+        mechanic.user_id,
+        'New Service Request Nearby',
+        `${category.name} request ${mechanic.distance_km}km away`,
+        'new_request'
+      );
+    }
+
+    // Emit socket event to admin
+    // sendToAdmin handled in next steps via adminDashboardEmitter
+    sendToAdmin(EVENTS.NEW_REQUEST_ADMIN, { 
+      requestId: request.id, 
+      serviceType: category.name,
+      location: breakdown_address 
+    });
+
+    // Update Admin Dashboard
+    emitDashboardUpdate();
+
+    // Cache active request in Redis
+    await redisClient.setex(
+      `request:active:${userId}`,
+      3600,
+      JSON.stringify({
+        requestId: request.id,
+        status: 'pending',
+        categoryName: category.name,
+        location: { lat: breakdown_lat, lng: breakdown_lng, address: breakdown_address }
+      })
+    );
 
     return request;
   } catch (error) {
@@ -320,13 +370,34 @@ const cancelRequest = async (requestId, userId, cancelReason) => {
 
   // Send to user
   const msgUser = NotificationMessages.REQUEST_CANCELLED(cancelReason || 'No reason provided');
-  await createNotification(request.user_id, msgUser.title, msgUser.message, msgUser.type);
+  await sendRealTimeNotification(request.user_id, msgUser.title, msgUser.message, msgUser.type);
 
   // Send to assigned mechanic if any
   if (request.mechanic_id) {
     const msgMech = NotificationMessages.REQUEST_CANCELLED('User cancelled the request');
-    await createNotification(request.mechanic_id, msgMech.title, msgMech.message, msgMech.type);
+    await sendRealTimeNotification(request.mechanic_id, msgMech.title, msgMech.message, msgMech.type);
+
+    sendToMechanic(request.mechanic_id, EVENTS.REQUEST_CANCELLED, {
+      requestId,
+      message: 'User cancelled the request',
+      cancelReason
+    });
   }
+
+  // Update Admin Dashboard
+  emitDashboardUpdate();
+
+  // Delete from Redis cache
+  await redisClient.del(`request:active:${request.user_id}`);
+
+  // Emit status change to request room
+  sendToRequest(requestId, 'request:status:updated', {
+    requestId,
+    newStatus: 'cancelled',
+    updatedAt: new Date(),
+    cancelReason,
+    cancelledBy: 'user'
+  });
 
   return result.rows[0];
 };
@@ -551,7 +622,7 @@ const acceptRequest = async (requestId, mechanicId) => {
 
     // 2. Verify mechanic is verified
     const mechanicCheck = await client.query(
-      'SELECT id, is_verified, is_available FROM mechanic_profiles WHERE user_id = $1',
+      'SELECT id, is_verified, is_available, rating FROM mechanic_profiles WHERE user_id = $1',
       [mechanicId]
     );
 
@@ -599,10 +670,57 @@ const acceptRequest = async (requestId, mechanicId) => {
     await client.query('COMMIT');
 
     // Notification to User
-    const mechQuery = await pool.query('SELECT full_name FROM users WHERE id = $1', [mechanicId]);
-    const mechanicName = mechQuery.rows[0]?.full_name || 'A mechanic';
+    const mechQuery = await pool.query('SELECT full_name, phone FROM users WHERE id = $1', [mechanicId]);
+    const mechanicInfo = mechQuery.rows[0] || {};
+    const mechanicName = mechanicInfo.full_name || 'A mechanic';
     const msg = NotificationMessages.REQUEST_ACCEPTED(mechanicName);
-    await createNotification(request.user_id, msg.title, msg.message, msg.type);
+    
+    // Save DB notification + realtime
+    await sendRealTimeNotification(
+      request.user_id,
+      msg.title,
+      msg.message,
+      msg.type
+    );
+
+    // Socket Emission: Emit to user with explicit payload
+    sendToUser(request.user_id, EVENTS.REQUEST_ACCEPTED, {
+      requestId,
+      mechanic: {
+        id: mechanicId,
+        name: mechanicName,
+        phone: mechanicInfo.phone,
+        rating: mechanic.rating || 0,
+        businessName: 'Independent Mechanic'
+      },
+      acceptedAt: new Date()
+    });
+
+    sendToRequest(requestId, 'request:status:updated', {
+      requestId,
+      previousStatus: 'pending',
+      newStatus: 'accepted',
+      updatedAt: new Date(),
+      mechanic: {
+        id: mechanicId,
+        name: mechanicName,
+        phone: mechanicInfo.phone,
+        rating: mechanic.rating || 0
+      }
+    });
+
+    // Update Redis cache
+    const activeCache = await redisClient.get(`request:active:${request.user_id}`);
+    if (activeCache) {
+      await redisClient.setex(
+        `request:active:${request.user_id}`,
+        3600,
+        JSON.stringify({ ...JSON.parse(activeCache), status: 'accepted' })
+      );
+    }
+
+    // Update Admin Dashboard
+    emitDashboardUpdate();
 
     // Fetch full details for response
     const fullRequest = await getRequestById(requestId, mechanicId, 'mechanic');
@@ -650,7 +768,7 @@ const updateRequestStatus = async (requestId, mechanicId, newStatus) => {
 
     // 1. Fetch the request
     const requestCheck = await client.query(
-      'SELECT id, mechanic_id, status, estimated_price FROM service_requests WHERE id = $1 FOR UPDATE',
+      'SELECT id, user_id, mechanic_id, status, estimated_price FROM service_requests WHERE id = $1 FOR UPDATE',
       [requestId]
     );
 
@@ -726,6 +844,62 @@ const updateRequestStatus = async (requestId, mechanicId, newStatus) => {
 
     await client.query('COMMIT');
 
+    // Socket Emission: Emit status update to request room
+    let detailedMsg;
+    if (newStatus === 'en_route') {
+      detailedMsg = {
+        requestId,
+        previousStatus: request.status,
+        newStatus: 'en_route',
+        updatedAt: new Date(),
+        message: 'Mechanic is heading to your location'
+      };
+    } else if (newStatus === 'arrived') {
+      detailedMsg = {
+        requestId,
+        previousStatus: request.status,
+        newStatus: 'arrived',
+        updatedAt: new Date(),
+        message: 'Mechanic has arrived at your location'
+      };
+    } else if (newStatus === 'in_progress') {
+      detailedMsg = {
+        requestId,
+        previousStatus: request.status,
+        newStatus: 'in_progress',
+        updatedAt: new Date(),
+        message: 'Service work has started'
+      };
+    } else if (newStatus === 'completed') {
+      detailedMsg = {
+        requestId,
+        previousStatus: request.status,
+        newStatus: 'completed',
+        updatedAt: new Date(),
+        finalPrice: request.estimated_price,
+        message: 'Service completed successfully',
+        canReview: true
+      };
+    }
+
+    if (detailedMsg) {
+      sendToRequest(requestId, 'request:status:updated', detailedMsg);
+    }
+
+    // Update Redis cache
+    const activeCache = await redisClient.get(`request:active:${request.user_id}`);
+    if (activeCache) {
+      if (newStatus === 'completed') {
+        await redisClient.del(`request:active:${request.user_id}`);
+      } else {
+        await redisClient.setex(
+          `request:active:${request.user_id}`,
+          3600,
+          JSON.stringify({ ...JSON.parse(activeCache), status: newStatus })
+        );
+      }
+    }
+
     // Notification to User
     const mechQuery = await pool.query('SELECT full_name FROM users WHERE id = $1', [mechanicId]);
     const mechanicName = mechQuery.rows[0]?.full_name || 'Your mechanic';
@@ -733,15 +907,38 @@ const updateRequestStatus = async (requestId, mechanicId, newStatus) => {
 
     if (newStatus === 'en_route') {
       msg = NotificationMessages.MECHANIC_EN_ROUTE(mechanicName, 15); // Mock 15m ETA
+      sendToUser(request.user_id, EVENTS.MECHANIC_EN_ROUTE, {
+        requestId,
+        mechanicId,
+        message: 'Mechanic is on the way to your location'
+      });
     } else if (newStatus === 'arrived') {
       msg = NotificationMessages.MECHANIC_ARRIVED();
+      sendToUser(request.user_id, EVENTS.MECHANIC_ARRIVED, {
+        requestId,
+        message: 'Mechanic has arrived at your location'
+      });
     } else if (newStatus === 'completed') {
       msg = NotificationMessages.SERVICE_COMPLETED(request.estimated_price);
+      sendToUser(request.user_id, EVENTS.SERVICE_COMPLETED, {
+        requestId,
+        finalPrice: request.estimated_price,
+        message: 'Service completed! Please leave a review.'
+      });
+      // Notify mechanic too
+      sendToMechanic(mechanicId, 'job:completed', {
+        requestId,
+        earnings: request.estimated_price,
+        message: 'Job completed successfully!'
+      });
     }
 
     if (msg) {
-      await createNotification(request.user_id, msg.title, msg.message, msg.type);
+      await sendRealTimeNotification(request.user_id, msg.title, msg.message, msg.type);
     }
+
+    // Update Admin Dashboard
+    emitDashboardUpdate();
 
     return updatedRequest.rows[0];
   } catch (error) {

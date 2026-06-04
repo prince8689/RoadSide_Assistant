@@ -15,6 +15,7 @@ const { query } = require('../../config/db');
 const { redisClient } = require('../../config/redis');
 const { AppError } = require('../../middleware/errorHandler');
 const { logger } = require('../../utils/logger');
+const { emitDashboardUpdate } = require('../../utils/adminDashboardEmitter');
 
 // ============================================
 // CONSTANTS
@@ -149,6 +150,9 @@ const registerUser = async (userData) => {
   // 5. Generate tokens
   const accessToken = generateAccessToken(user);
   const refreshToken = await generateRefreshToken(user);
+
+  // Update Admin Dashboard
+  emitDashboardUpdate();
 
   // 6. Return user + tokens (password NOT included — RETURNING clause excludes it)
   return {
