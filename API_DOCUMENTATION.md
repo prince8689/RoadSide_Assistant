@@ -1305,3 +1305,45 @@ Check API and service health status.
 | Day 9 | Reviews, ratings, service history |
 | Day 10 | Notifications system |
 | Day 11 | Search & filters, query builder, rate limiting, API response standardization, API documentation |
+
+---
+
+## Socket.io Events Documentation
+
+### Connection
+URL: ws://localhost:5000
+Auth: { token: 'JWT_TOKEN' }
+
+### Client → Server Events
+| Event | Data | Description |
+|-------|------|-------------|
+| mechanic:location:update | { lat, lng, requestId? } | Update live location |
+| mechanic:go:offline | none | Go offline |
+| user:watch:mechanic | { requestId, mechanicId } | Start watching mechanic |
+| user:unwatch:mechanic | { requestId } | Stop watching |
+| request:subscribe | { requestId } | Subscribe to request updates |
+| request:unsubscribe | { requestId } | Unsubscribe |
+| notification:get:unread | none | Get unread count |
+| notification:mark:read | { notificationIds[] } | Mark as read |
+| client:reconnected | { lastEventTime, activeRequestId? } | Handle reconnect |
+
+### Server → Client Events
+| Event | Data | Description |
+|-------|------|-------------|
+| mechanic:location:receive | { lat, lng, updatedAt } | Live location update |
+| mechanic:location:ack | { success, skipped? } | Location update ack |
+| request:current:status | { requestId, status, timeline } | Current status |
+| request:status:updated | { requestId, newStatus, previousStatus } | Status change |
+| request:new | { requestId, serviceType, location, distance } | New request nearby |
+| request:accepted | { requestId, mechanic } | Request accepted |
+| request:cancelled | { requestId, reason } | Request cancelled |
+| mechanic:en_route | { requestId } | Mechanic en route |
+| mechanic:arrived | { requestId } | Mechanic arrived |
+| service:completed | { requestId, finalPrice } | Service done |
+| notification:new | { id, title, message, type } | New notification |
+| notification:unread_count | { count } | Unread count |
+| notification:recent | { notifications[] } | Recent unread |
+| notification:missed | { notifications[], count } | Missed on reconnect |
+| admin:stats:update | { stats object } | Live dashboard stats |
+| admin:request:new | { requestId } | New request for admin |
+| server:error | { message } | Server error |
