@@ -2,8 +2,11 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiCheck, FiX, FiMapPin, FiTruck, FiSearch } from 'react-icons/fi';
 import { toast } from 'react-hot-toast';
+import { AnimatePresence, motion } from 'framer-motion';
+import { newRequestSlide } from '../../../utils/animations';
 import useMechanicStore from '../../../store/mechanicStore';
 import { acceptRequest, rejectRequest } from '../../../api/mechanicApi';
+import PageTransition from '../../../components/common/PageTransition';
 
 const NewRequestsPage = () => {
   const { availableRequests, fetchAvailableRequests, removeFromAvailable, isAvailable } = useMechanicStore();
@@ -35,8 +38,9 @@ const NewRequestsPage = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in">
-      <div className="flex justify-between items-center mb-6">
+    <PageTransition>
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-dark">New Service Requests</h1>
         <div className="flex items-center gap-2 text-red-500 font-semibold text-sm">
           <span className="relative flex h-3 w-3">
@@ -63,9 +67,18 @@ const NewRequestsPage = () => {
             <p className="text-muted">Stay available. We will notify you when someone needs help.</p>
           </div>
         ) : (
-          availableRequests.map(req => (
-            <div key={req.id} className="bg-white p-6 rounded-2xl shadow-card border-l-4 border-primary animate-slide-up flex flex-col md:flex-row justify-between gap-4">
-              <div className="space-y-3">
+          <AnimatePresence>
+            {availableRequests.map(req => (
+              <motion.div 
+                key={req.id} 
+                variants={newRequestSlide}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                layout
+                className="bg-white rounded-2xl p-6 shadow-card border-l-4 border-primary mb-4 flex flex-col md:flex-row justify-between gap-4"
+              >
+                <div className="space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-orange-50 text-primary rounded-xl flex items-center justify-center text-2xl">
                     <FiTruck />
@@ -95,11 +108,13 @@ const NewRequestsPage = () => {
                   <FiX /> REJECT
                 </button>
               </div>
-            </div>
-          ))
+            </motion.div>
+          ))}
+          </AnimatePresence>
         )}
       </div>
     </div>
+    </PageTransition>
   );
 };
 

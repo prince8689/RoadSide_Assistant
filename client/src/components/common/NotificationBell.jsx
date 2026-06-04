@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FiBell } from 'react-icons/fi';
+import { motion } from 'framer-motion';
 import useNotificationStore from '../../store/notificationStore';
 
 const NotificationBell = () => {
@@ -9,14 +10,20 @@ const NotificationBell = () => {
   return (
     <div className="relative">
       <button 
-        className="p-2 bg-secondary rounded-full hover:bg-opacity-80 transition relative"
         onClick={() => setIsOpen(!isOpen)}
+        className="relative p-2 text-gray-400 hover:text-white transition-colors"
       >
-        <FiBell className="text-white text-xl" />
+        <FiBell className="text-xl" />
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-secondary">
-            {unreadCount}
-          </span>
+          <motion.span 
+            key={unreadCount}
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: 'spring', stiffness: 500 }}
+            className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full border border-dark flex items-center justify-center text-[10px] font-bold text-white"
+          >
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </motion.span>
         )}
       </button>
 

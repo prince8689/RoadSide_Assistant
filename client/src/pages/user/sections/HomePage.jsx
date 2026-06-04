@@ -2,8 +2,11 @@ import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FiClock, FiCheckCircle } from 'react-icons/fi';
 import { MdHardware, MdRvHookup, MdBatteryChargingFull, MdTireRepair, MdLocalGasStation, MdMoreHoriz, MdArrowForward } from 'react-icons/md';
+import { motion } from 'framer-motion';
 import useAuthStore from '../../../store/authStore';
 import useRequestStore from '../../../store/requestStore';
+import PageTransition from '../../../components/common/PageTransition';
+import { pulseOrange } from '../../../utils/animations';
 
 const HomePage = () => {
   const { user } = useAuthStore();
@@ -25,25 +28,29 @@ const HomePage = () => {
   ];
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-dark">Good Morning, {user?.full_name.split(' ')[0]}! 👋</h1>
-        <p className="text-muted mt-1">Your vehicle protection starts here.</p>
-      </div>
+    <PageTransition>
+      <div className="space-y-8">
+        {/* Header */}
+        <div>
+          <h1 className="text-3xl font-bold text-dark">Good Morning, {user?.full_name.split(' ')[0]}! 👋</h1>
+          <p className="text-muted mt-1">Your vehicle protection starts here.</p>
+        </div>
 
       {/* SOS Button */}
       <div className="bg-white p-6 rounded-2xl shadow-card text-center border-l-4 border-primary">
         <h2 className="text-lg font-bold text-dark mb-4">Emergency on the road?</h2>
-        <button
+        <motion.button
           onClick={() => navigate('/dashboard/request')}
-          className="w-full bg-primary text-white font-bold text-xl py-5 rounded-2xl shadow-lg hover:bg-orange-600 transition-all hover:scale-[1.02] relative overflow-hidden group"
+          animate={pulseOrange.animate}
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
+          className="w-full bg-primary text-white font-bold text-xl py-6 rounded-2xl shadow-lg flex items-center justify-center gap-3 relative overflow-hidden group"
         >
-          <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 transition-opacity"></div>
-          <span className="relative z-10 flex items-center justify-center gap-2">
-            🚨 REQUEST EMERGENCY HELP
-          </span>
-        </button>
+          <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
+          <span className="text-3xl relative z-10">🚨</span>
+          <span className="relative z-10">REQUEST EMERGENCY HELP</span>
+          <span className="text-3xl relative z-10">🚨</span>
+        </motion.button>
       </div>
 
       {/* Services Grid */}
@@ -98,7 +105,8 @@ const HomePage = () => {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </PageTransition>
   );
 };
 

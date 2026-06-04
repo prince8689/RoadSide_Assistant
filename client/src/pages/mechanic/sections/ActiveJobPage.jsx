@@ -6,6 +6,7 @@ import { toast } from 'react-hot-toast';
 import { FiPhone, FiCheck, FiMapPin, FiNavigation } from 'react-icons/fi';
 import api from '../../../api/axios';
 import { getSocket } from '../../../socket/socketClient';
+import PageTransition from '../../../components/common/PageTransition';
 
 const userIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
@@ -93,8 +94,9 @@ const ActiveJobPage = () => {
   const mapCenter = mechLoc || userLoc;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] animate-fade-in relative max-w-5xl mx-auto">
-      <div className="bg-dark p-4 rounded-t-2xl text-white flex justify-between items-center z-10">
+    <PageTransition>
+      <div className="flex flex-col h-[calc(100vh-140px)] relative max-w-5xl mx-auto">
+        <div className="bg-dark p-4 rounded-t-2xl text-white flex justify-between items-center z-10">
         <h2 className="font-bold">Active Job</h2>
         <span className={`px-3 py-1 text-xs font-bold uppercase rounded bg-white text-dark`}>
           ● {activeJob.status.replace('_', ' ')}
@@ -156,6 +158,7 @@ const ActiveJobPage = () => {
         </div>
       </div>
     </div>
+    </PageTransition>
   );
 };
 

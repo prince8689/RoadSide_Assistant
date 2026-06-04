@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiUsers, FiTool, FiCheckCircle, FiList, FiZap, FiClock, FiAlertTriangle, FiArrowRight } from 'react-icons/fi';
+import { toast } from 'react-hot-toast';
 import useAdminStore from '../../../store/adminStore';
 import StatsCard from '../../../components/admin/StatsCard';
 import StatusBadge from '../../../components/admin/StatusBadge';
+import PageTransition from '../../../components/common/PageTransition';
 
 const AdminHomePage = () => {
   const { stats, fetchStats, pendingMechanics, fetchPendingMechanics, requests, fetchRequests } = useAdminStore();
@@ -16,9 +18,10 @@ const AdminHomePage = () => {
   }, []);
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-dark">Dashboard Overview</h1>
+    <PageTransition>
+      <div className="space-y-6 max-w-7xl mx-auto">
+        <div>
+          <h1 className="text-2xl font-bold text-dark">Dashboard Overview</h1>
         <p className="text-gray-500 text-sm mt-1">Real-time statistics and system alerts.</p>
       </div>
 
@@ -112,7 +115,7 @@ const AdminHomePage = () => {
           </div>
         </div>
       </div>
-    </div>
+    </PageTransition>
   );
 };
 
