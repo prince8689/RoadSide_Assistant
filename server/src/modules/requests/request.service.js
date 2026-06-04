@@ -1,0 +1,881 @@
+// ============================================
+// SERVICE REQUEST MODULE — SERVICE (BUSINESS LOGIC)
+// ============================================
+// Core business logic for service request lifecycle:
+// create, fetch, cancel, and query service requests.
+//
+// Key design decisions:
+//   - User can only have ONE active request at a time
+//   - Only pending/accepted requests can be cancelled
+//   - Mechanic sees all pending requests (to accept)
+//   - Vehicle ownership is verified before creating request
+//   - Estimated price comes from service_categories.base_price
+
+const { query, pool } = require('../../config/db');
+const { AppError } = require('../../middleware/errorHandler');
+const { createNotification, createBulkNotifications } = require('../notifications/notification.service');
+const NotificationMessages = require('../../utils/notificationHelper');
+
+// ---- Statuses considered "active" (not finished) ----
+const ACTIVE_STATUSES = ['pending', 'accepted', 'en_route', 'arrived', 'in_progress'];
+
+// ---- Statuses that allow cancellation ----
+const CANCELLABLE_STATUSES = ['pending', 'accepted'];
+
+// ============================================
+// CREATE SERVICE REQUEST
+// ============================================
+
+/**
+ * Create a new roadside assistance request.
+ *
+ * Business rules:
+ *   1. User must own the vehicle
+ *   2. No other active request can exist for this user
+ *   3. Category must exist and be active
+ *   4. Estimated price = category base_price
+ *
+ * @param {string} userId - User UUID from JWT
+ * @param {Object} data - { vehicle_id, category_id, breakdown_lat, breakdown_lng, breakdown_address, description }
+ * @returns {Object} Created request with vehicle and category details
+ * @throws {AppError} 404 if vehicle/category not found
+ * @throws {AppError} 403 if vehicle doesn't belong to user
+ * @throws {AppError} 409 if user already has an active request
+ */
+const createRequest = async (userId, data) => {
+  const {
+    vehicle_id,
+    category_id,
+    breakdown_lat,
+    breakdown_lng,
+    breakdown_address,
+    description,
+  } = data;
+
+  // Use a transaction — multiple reads + one insert must be atomic
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 1. Verify user owns the vehicle
+    const vehicleCheck = await client.query(
+      'SELECT id, make, model, year, license_plate FROM vehicles WHERE id = $1',
+      [vehicle_id]
+    );
+
+    if (vehicleCheck.rows.length === 0) {
+      throw new AppError('Vehicle not found', 404);
+    }
+
+    if (vehicleCheck.rows[0].user_id !== undefined) {
+      // Check ownership via a separate query since we didn't select user_id
+    }
+
+    const ownerCheck = await client.query(
+      'SELECT id FROM vehicles WHERE id = $1 AND user_id = $2',
+      [vehicle_id, userId]
+    );
+
+    if (ownerCheck.rows.length === 0) {
+      throw new AppError('This vehicle does not belong to you', 403);
+    }
+
+    // 2. Check no active request exists for this user
+    const activeCheck = await client.query(
+      `SELECT id FROM service_requests
+       WHERE user_id = $1 AND status = ANY($2)`,
+      [userId, ACTIVE_STATUSES]
+    );
+
+    if (activeCheck.rows.length > 0) {
+      throw new AppError('You already have an active service request', 409);
+    }
+
+    // 3. Verify service category exists and is active
+    const categoryCheck = await client.query(
+      'SELECT id, name, slug, icon, base_price FROM service_categories WHERE id = $1 AND is_active = true',
+      [category_id]
+    );
+
+    if (categoryCheck.rows.length === 0) {
+      throw new AppError('Service category not found or inactive', 404);
+    }
+
+    const category = categoryCheck.rows[0];
+
+    // 4. Insert the service request
+    const result = await client.query(
+      `INSERT INTO service_requests (
+        user_id, vehicle_id, category_id,
+        breakdown_lat, breakdown_lng, breakdown_address,
+        description, estimated_price, status
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+      RETURNING *`,
+      [
+        userId,
+        vehicle_id,
+        category_id,
+        breakdown_lat,
+        breakdown_lng,
+        breakdown_address,
+        description || null,
+        category.base_price,
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    // Notifications
+    const msg = NotificationMessages.REQUEST_CREATED(category.name);
+    await createNotification(userId, msg.title, msg.message, msg.type);
+
+    // Find nearby verified mechanics (Mock proximity for now)
+    const nearbyCheck = await pool.query(
+      'SELECT user_id FROM mechanic_profiles WHERE is_verified = true AND is_available = true'
+    );
+    if (nearbyCheck.rows.length > 0) {
+      const mechanicIds = nearbyCheck.rows.map(r => r.user_id);
+      const broadcastMsg = NotificationMessages.NEW_REQUEST_NEARBY(category.name, '5'); // Mock distance 5km
+      await createBulkNotifications(mechanicIds, broadcastMsg.title, broadcastMsg.message, broadcastMsg.type);
+    }
+
+    // Enrich the response with vehicle and category info
+    const request = result.rows[0];
+    request.vehicle = vehicleCheck.rows[0];
+    request.category = category;
+
+    return request;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================
+// GET USER'S REQUESTS
+// ============================================
+
+/**
+ * Fetch all service requests for the logged-in user.
+ * Joins with vehicles, service_categories, and mechanic user details.
+ * Sorted by created_at DESC (newest first).
+ *
+ * @param {string} userId - User UUID from JWT
+ * @returns {Array} Array of request objects with joined details
+ */
+const getUserRequests = async (userId) => {
+  const result = await query(
+    `SELECT
+      sr.*,
+      v.make AS vehicle_make,
+      v.model AS vehicle_model,
+      v.year AS vehicle_year,
+      v.license_plate AS vehicle_license_plate,
+      sc.name AS category_name,
+      sc.slug AS category_slug,
+      sc.icon AS category_icon,
+      sc.base_price AS category_base_price,
+      m.full_name AS mechanic_name,
+      m.phone AS mechanic_phone
+    FROM service_requests sr
+    JOIN vehicles v ON v.id = sr.vehicle_id
+    JOIN service_categories sc ON sc.id = sr.category_id
+    LEFT JOIN users m ON m.id = sr.mechanic_id
+    WHERE sr.user_id = $1
+    ORDER BY sr.created_at DESC`,
+    [userId]
+  );
+
+  return result.rows;
+};
+
+// ============================================
+// GET SINGLE REQUEST BY ID
+// ============================================
+
+/**
+ * Fetch a single service request with full details.
+ * Access control based on role:
+ *   - user: must be the request creator
+ *   - mechanic: must be the assigned mechanic
+ *   - admin: no restrictions
+ *
+ * @param {string} requestId - Service request UUID
+ * @param {string} userId - User UUID from JWT
+ * @param {string} role - User's role from JWT
+ * @returns {Object} Full request details
+ * @throws {AppError} 404 if request not found
+ * @throws {AppError} 403 if user doesn't have access
+ */
+const getRequestById = async (requestId, userId, role) => {
+  const result = await query(
+    `SELECT
+      sr.*,
+      v.make AS vehicle_make,
+      v.model AS vehicle_model,
+      v.year AS vehicle_year,
+      v.license_plate AS vehicle_license_plate,
+      v.fuel_type AS vehicle_fuel_type,
+      v.color AS vehicle_color,
+      sc.name AS category_name,
+      sc.slug AS category_slug,
+      sc.icon AS category_icon,
+      sc.base_price AS category_base_price,
+      sc.description AS category_description,
+      u.full_name AS user_name,
+      u.phone AS user_phone,
+      m.full_name AS mechanic_name,
+      m.phone AS mechanic_phone,
+      m.profile_picture AS mechanic_profile_picture
+    FROM service_requests sr
+    JOIN vehicles v ON v.id = sr.vehicle_id
+    JOIN service_categories sc ON sc.id = sr.category_id
+    JOIN users u ON u.id = sr.user_id
+    LEFT JOIN users m ON m.id = sr.mechanic_id
+    WHERE sr.id = $1`,
+    [requestId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError('Service request not found', 404);
+  }
+
+  const request = result.rows[0];
+
+  // Access control based on role
+  if (role === 'user' && request.user_id !== userId) {
+    throw new AppError('You do not have access to this request', 403);
+  }
+
+  if (role === 'mechanic' && request.mechanic_id !== userId) {
+    throw new AppError('You do not have access to this request', 403);
+  }
+
+  // Admin has unrestricted access — no check needed
+
+  return request;
+};
+
+// ============================================
+// CANCEL REQUEST
+// ============================================
+
+/**
+ * Cancel a service request.
+ *
+ * Business rules:
+ *   1. Request must belong to the user
+ *   2. Only pending or accepted requests can be cancelled
+ *   3. Sets status to cancelled, cancelled_at to NOW(), stores cancel_reason
+ *
+ * @param {string} requestId - Service request UUID
+ * @param {string} userId - User UUID from JWT
+ * @param {string} cancelReason - Reason for cancellation
+ * @returns {Object} Updated request
+ * @throws {AppError} 404 if request not found
+ * @throws {AppError} 403 if request doesn't belong to user
+ * @throws {AppError} 400 if request cannot be cancelled in current status
+ */
+const cancelRequest = async (requestId, userId, cancelReason) => {
+  // 1. Fetch the request
+  const requestCheck = await query(
+    'SELECT id, user_id, status FROM service_requests WHERE id = $1',
+    [requestId]
+  );
+
+  if (requestCheck.rows.length === 0) {
+    throw new AppError('Service request not found', 404);
+  }
+
+  const request = requestCheck.rows[0];
+
+  // 2. Verify ownership
+  if (request.user_id !== userId) {
+    throw new AppError('You do not have access to this request', 403);
+  }
+
+  // 3. Check if request can be cancelled
+  if (!CANCELLABLE_STATUSES.includes(request.status)) {
+    throw new AppError(
+      `Cannot cancel a request with status "${request.status}". Only pending or accepted requests can be cancelled.`,
+      400
+    );
+  }
+
+  // 4. Update status to cancelled
+  const result = await query(
+    `UPDATE service_requests
+     SET status = 'cancelled',
+         cancelled_at = NOW(),
+         cancel_reason = $1,
+         updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+    [cancelReason, requestId]
+  );
+
+  // Send to user
+  const msgUser = NotificationMessages.REQUEST_CANCELLED(cancelReason || 'No reason provided');
+  await createNotification(request.user_id, msgUser.title, msgUser.message, msgUser.type);
+
+  // Send to assigned mechanic if any
+  if (request.mechanic_id) {
+    const msgMech = NotificationMessages.REQUEST_CANCELLED('User cancelled the request');
+    await createNotification(request.mechanic_id, msgMech.title, msgMech.message, msgMech.type);
+  }
+
+  return result.rows[0];
+};
+
+// ============================================
+// GET AVAILABLE REQUESTS (FOR MECHANICS)
+// ============================================
+
+/**
+ * Fetch all pending requests that mechanics can accept.
+ * Joins with user details, vehicle info, and category.
+ * Sorted by created_at ASC (oldest first — first come, first served).
+ *
+ * @param {string} mechanicId - Mechanic's user UUID (unused for filtering, but available for future proximity logic)
+ * @returns {Array} Array of pending requests
+ */
+const getAvailableRequests = async (mechanicId) => {
+  const result = await query(
+    `SELECT
+      sr.id,
+      sr.user_id,
+      sr.vehicle_id,
+      sr.category_id,
+      sr.status,
+      sr.breakdown_lat,
+      sr.breakdown_lng,
+      sr.breakdown_address,
+      sr.description,
+      sr.estimated_price,
+      sr.requested_at,
+      sr.created_at,
+      u.full_name AS user_name,
+      u.phone AS user_phone,
+      v.make AS vehicle_make,
+      v.model AS vehicle_model,
+      v.year AS vehicle_year,
+      v.license_plate AS vehicle_license_plate,
+      v.fuel_type AS vehicle_fuel_type,
+      v.color AS vehicle_color,
+      sc.name AS category_name,
+      sc.slug AS category_slug,
+      sc.icon AS category_icon,
+      sc.base_price AS category_base_price
+    FROM service_requests sr
+    JOIN users u ON u.id = sr.user_id
+    JOIN vehicles v ON v.id = sr.vehicle_id
+    JOIN service_categories sc ON sc.id = sr.category_id
+    WHERE sr.status = 'pending'
+    ORDER BY sr.created_at ASC`,
+    []
+  );
+
+  return result.rows;
+};
+
+// ============================================
+// GET MECHANIC'S ASSIGNED REQUESTS
+// ============================================
+
+/**
+ * Fetch all requests assigned to a specific mechanic.
+ * Includes all statuses EXCEPT pending (since pending means unassigned).
+ * Sorted by created_at DESC (newest first).
+ *
+ * @param {string} mechanicId - Mechanic's user UUID
+ * @returns {Array} Array of assigned requests
+ */
+const getMechanicRequests = async (mechanicId) => {
+  const result = await query(
+    `SELECT
+      sr.*,
+      u.full_name AS user_name,
+      u.phone AS user_phone,
+      v.make AS vehicle_make,
+      v.model AS vehicle_model,
+      v.year AS vehicle_year,
+      v.license_plate AS vehicle_license_plate,
+      sc.name AS category_name,
+      sc.slug AS category_slug,
+      sc.icon AS category_icon,
+      sc.base_price AS category_base_price
+    FROM service_requests sr
+    JOIN users u ON u.id = sr.user_id
+    JOIN vehicles v ON v.id = sr.vehicle_id
+    JOIN service_categories sc ON sc.id = sr.category_id
+    WHERE sr.mechanic_id = $1
+      AND sr.status != 'pending'
+    ORDER BY sr.created_at DESC`,
+    [mechanicId]
+  );
+
+  return result.rows;
+};
+
+// ============================================
+// GET ACTIVE REQUEST
+// ============================================
+
+/**
+ * Find the currently active request for a user or mechanic.
+ * Active = status NOT IN (completed, cancelled).
+ *
+ * @param {string} userId - User UUID from JWT
+ * @param {string} role - 'user' or 'mechanic'
+ * @returns {Object|null} Active request or null if none
+ */
+const getActiveRequest = async (userId, role) => {
+  let whereClause;
+
+  if (role === 'mechanic') {
+    // Mechanic: find request assigned to them
+    whereClause = 'sr.mechanic_id = $1';
+  } else {
+    // User: find their own request
+    whereClause = 'sr.user_id = $1';
+  }
+
+  const result = await query(
+    `SELECT
+      sr.*,
+      v.make AS vehicle_make,
+      v.model AS vehicle_model,
+      v.year AS vehicle_year,
+      v.license_plate AS vehicle_license_plate,
+      sc.name AS category_name,
+      sc.slug AS category_slug,
+      sc.icon AS category_icon,
+      sc.base_price AS category_base_price,
+      u.full_name AS user_name,
+      u.phone AS user_phone,
+      m.full_name AS mechanic_name,
+      m.phone AS mechanic_phone
+    FROM service_requests sr
+    JOIN vehicles v ON v.id = sr.vehicle_id
+    JOIN service_categories sc ON sc.id = sr.category_id
+    JOIN users u ON u.id = sr.user_id
+    LEFT JOIN users m ON m.id = sr.mechanic_id
+    WHERE ${whereClause}
+      AND sr.status = ANY($2)
+    ORDER BY sr.created_at DESC
+    LIMIT 1`,
+    [userId, ACTIVE_STATUSES]
+  );
+
+  return result.rows[0] || null;
+};
+
+// ============================================
+// STATUS TRANSITION RULES
+// ============================================
+
+/**
+ * Valid status transitions map.
+ * Each key is the current status, value is array of allowed next statuses.
+ * This enforces strict step-by-step progression — no skipping allowed.
+ */
+const validTransitions = {
+  accepted: ['en_route'],
+  en_route: ['arrived'],
+  arrived: ['in_progress'],
+  in_progress: ['completed'],
+};
+
+/**
+ * Check if a status transition is valid.
+ *
+ * @param {string} currentStatus - Current request status
+ * @param {string} newStatus - Desired new status
+ * @returns {boolean} true if transition is allowed
+ */
+const isValidStatusTransition = (currentStatus, newStatus) => {
+  const allowed = validTransitions[currentStatus];
+  return allowed ? allowed.includes(newStatus) : false;
+};
+
+// ============================================
+// ACCEPT REQUEST (MECHANIC)
+// ============================================
+
+/**
+ * Mechanic accepts a pending service request.
+ *
+ * Business rules:
+ *   1. Request must exist and be in pending status
+ *   2. Mechanic must be verified
+ *   3. Mechanic must not have another active request
+ *   4. Uses PostgreSQL transaction:
+ *      - Update service_requests: set mechanic_id, status=accepted, accepted_at
+ *      - Update mechanic_profiles: set is_available=false
+ *
+ * @param {string} requestId - Service request UUID
+ * @param {string} mechanicId - Mechanic's user UUID from JWT
+ * @returns {Object} Updated request with full details
+ * @throws {AppError} 404 if request not found
+ * @throws {AppError} 400 if request not pending, or mechanic not verified
+ * @throws {AppError} 409 if mechanic already has an active request
+ */
+const acceptRequest = async (requestId, mechanicId) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 1. Fetch the request and verify it's pending
+    const requestCheck = await client.query(
+      'SELECT id, user_id, status FROM service_requests WHERE id = $1 FOR UPDATE',
+      [requestId]
+    );
+
+    if (requestCheck.rows.length === 0) {
+      throw new AppError('Service request not found', 404);
+    }
+
+    const request = requestCheck.rows[0];
+
+    if (request.status !== 'pending') {
+      throw new AppError(
+        `Request is already "${request.status}". Only pending requests can be accepted.`,
+        400
+      );
+    }
+
+    // 2. Verify mechanic is verified
+    const mechanicCheck = await client.query(
+      'SELECT id, is_verified, is_available FROM mechanic_profiles WHERE user_id = $1',
+      [mechanicId]
+    );
+
+    if (mechanicCheck.rows.length === 0) {
+      throw new AppError('Mechanic profile not found. Please create a profile first.', 404);
+    }
+
+    const mechanic = mechanicCheck.rows[0];
+
+    if (!mechanic.is_verified) {
+      throw new AppError('Your profile must be verified before accepting requests', 400);
+    }
+
+    // 3. Check mechanic has no other active request
+    const activeCheck = await client.query(
+      `SELECT id FROM service_requests
+       WHERE mechanic_id = $1 AND status = ANY($2)`,
+      [mechanicId, ACTIVE_STATUSES.filter(s => s !== 'pending')]
+    );
+
+    if (activeCheck.rows.length > 0) {
+      throw new AppError('You already have an active request. Complete it before accepting another.', 409);
+    }
+
+    // 4. Update service_requests: assign mechanic, set accepted
+    const updatedRequest = await client.query(
+      `UPDATE service_requests
+       SET mechanic_id = $1,
+           status = 'accepted',
+           accepted_at = NOW(),
+           updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [mechanicId, requestId]
+    );
+
+    // 5. Update mechanic_profiles: set is_available = false
+    await client.query(
+      `UPDATE mechanic_profiles
+       SET is_available = false, updated_at = NOW()
+       WHERE user_id = $1`,
+      [mechanicId]
+    );
+
+    await client.query('COMMIT');
+
+    // Notification to User
+    const mechQuery = await pool.query('SELECT full_name FROM users WHERE id = $1', [mechanicId]);
+    const mechanicName = mechQuery.rows[0]?.full_name || 'A mechanic';
+    const msg = NotificationMessages.REQUEST_ACCEPTED(mechanicName);
+    await createNotification(request.user_id, msg.title, msg.message, msg.type);
+
+    // Fetch full details for response
+    const fullRequest = await getRequestById(requestId, mechanicId, 'mechanic');
+    return fullRequest;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================
+// UPDATE REQUEST STATUS (MECHANIC)
+// ============================================
+
+/**
+ * Update a service request's status step-by-step.
+ *
+ * Allowed transitions (strict, no skipping):
+ *   accepted  → en_route
+ *   en_route  → arrived
+ *   arrived   → in_progress
+ *   in_progress → completed
+ *
+ * On completion:
+ *   - completed_at = NOW()
+ *   - final_price = estimated_price
+ *   - mechanic is_available = true
+ *   - mechanic total_jobs incremented by 1
+ *
+ * @param {string} requestId - Service request UUID
+ * @param {string} mechanicId - Mechanic's user UUID from JWT
+ * @param {string} newStatus - Target status
+ * @returns {Object} Updated request
+ * @throws {AppError} 404 if request not found
+ * @throws {AppError} 403 if mechanic not assigned to this request
+ * @throws {AppError} 400 if status transition is invalid
+ */
+const updateRequestStatus = async (requestId, mechanicId, newStatus) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 1. Fetch the request
+    const requestCheck = await client.query(
+      'SELECT id, mechanic_id, status, estimated_price FROM service_requests WHERE id = $1 FOR UPDATE',
+      [requestId]
+    );
+
+    if (requestCheck.rows.length === 0) {
+      throw new AppError('Service request not found', 404);
+    }
+
+    const request = requestCheck.rows[0];
+
+    // 2. Verify this mechanic is assigned to this request
+    if (request.mechanic_id !== mechanicId) {
+      throw new AppError('You are not authorized to update this request', 403);
+    }
+
+    // 3. Validate status transition
+    if (!isValidStatusTransition(request.status, newStatus)) {
+      throw new AppError(
+        `Invalid status transition: "${request.status}" → "${newStatus}". ` +
+        `Allowed: ${request.status} → ${(validTransitions[request.status] || []).join(', ') || 'none'}`,
+        400
+      );
+    }
+
+    // 4. Build the update query based on new status
+    // Map status to its corresponding timestamp column
+    const statusTimestampMap = {
+      en_route: 'en_route_at',
+      arrived: 'arrived_at',
+      in_progress: 'started_at',
+      completed: 'completed_at',
+    };
+
+    const timestampColumn = statusTimestampMap[newStatus];
+    let updateQuery;
+    let updateParams;
+
+    if (newStatus === 'completed') {
+      // Completion: set final_price = estimated_price + timestamp
+      updateQuery = `
+        UPDATE service_requests
+        SET status = $1,
+            ${timestampColumn} = NOW(),
+            final_price = estimated_price,
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING *`;
+      updateParams = [newStatus, requestId];
+    } else {
+      // Normal status update: set status + timestamp
+      updateQuery = `
+        UPDATE service_requests
+        SET status = $1,
+            ${timestampColumn} = NOW(),
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING *`;
+      updateParams = [newStatus, requestId];
+    }
+
+    const updatedRequest = await client.query(updateQuery, updateParams);
+
+    // 5. If completed, update mechanic profile
+    if (newStatus === 'completed') {
+      await client.query(
+        `UPDATE mechanic_profiles
+         SET is_available = true,
+             total_jobs = total_jobs + 1,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [mechanicId]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Notification to User
+    const mechQuery = await pool.query('SELECT full_name FROM users WHERE id = $1', [mechanicId]);
+    const mechanicName = mechQuery.rows[0]?.full_name || 'Your mechanic';
+    let msg;
+
+    if (newStatus === 'en_route') {
+      msg = NotificationMessages.MECHANIC_EN_ROUTE(mechanicName, 15); // Mock 15m ETA
+    } else if (newStatus === 'arrived') {
+      msg = NotificationMessages.MECHANIC_ARRIVED();
+    } else if (newStatus === 'completed') {
+      msg = NotificationMessages.SERVICE_COMPLETED(request.estimated_price);
+    }
+
+    if (msg) {
+      await createNotification(request.user_id, msg.title, msg.message, msg.type);
+    }
+
+    return updatedRequest.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================
+// REJECT REQUEST (MECHANIC)
+// ============================================
+
+/**
+ * Mechanic rejects a pending request without accepting it.
+ * The request stays in pending status for other mechanics.
+ *
+ * Business rules:
+ *   1. Request must exist and be in pending status
+ *   2. Request stays pending — no mechanic is assigned
+ *   3. This is a soft rejection — just acknowledges the mechanic passed on it
+ *
+ * @param {string} requestId - Service request UUID
+ * @param {string} mechanicId - Mechanic's user UUID (for logging)
+ * @returns {Object} The request (still pending)
+ * @throws {AppError} 404 if request not found
+ * @throws {AppError} 400 if request is not pending
+ */
+const rejectRequest = async (requestId, mechanicId) => {
+  const requestCheck = await query(
+    'SELECT id, status FROM service_requests WHERE id = $1',
+    [requestId]
+  );
+
+  if (requestCheck.rows.length === 0) {
+    throw new AppError('Service request not found', 404);
+  }
+
+  const request = requestCheck.rows[0];
+
+  if (request.status !== 'pending') {
+    throw new AppError(
+      `Cannot reject a request with status "${request.status}". Only pending requests can be rejected.`,
+      400
+    );
+  }
+
+  // Request stays pending — no changes made to the request
+  // In production, you could log this rejection to a separate table
+  // for analytics (which mechanics are rejecting which requests)
+
+  return request;
+};
+
+// ============================================
+// GET REQUEST TIMELINE
+// ============================================
+
+/**
+ * Get the full status timeline of a service request.
+ * Returns all lifecycle timestamps in chronological order.
+ *
+ * @param {string} requestId - Service request UUID
+ * @param {string} userId - User UUID from JWT (for access control)
+ * @param {string} role - User's role from JWT
+ * @returns {Object} Timeline with all timestamps
+ * @throws {AppError} 404 if request not found
+ * @throws {AppError} 403 if user doesn't have access
+ */
+const getRequestTimeline = async (requestId, userId, role) => {
+  const result = await query(
+    `SELECT
+      sr.id,
+      sr.status,
+      sr.user_id,
+      sr.mechanic_id,
+      sr.requested_at,
+      sr.accepted_at,
+      sr.en_route_at,
+      sr.arrived_at,
+      sr.started_at,
+      sr.completed_at,
+      sr.cancelled_at,
+      sr.created_at,
+      sr.updated_at
+    FROM service_requests sr
+    WHERE sr.id = $1`,
+    [requestId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError('Service request not found', 404);
+  }
+
+  const request = result.rows[0];
+
+  // Access control
+  if (role === 'user' && request.user_id !== userId) {
+    throw new AppError('You do not have access to this request', 403);
+  }
+
+  if (role === 'mechanic' && request.mechanic_id !== userId) {
+    throw new AppError('You do not have access to this request', 403);
+  }
+
+  // Build clean timeline object
+  return {
+    request_id: request.id,
+    current_status: request.status,
+    timeline: {
+      created_at: request.created_at,
+      requested_at: request.requested_at,
+      accepted_at: request.accepted_at,
+      en_route_at: request.en_route_at,
+      arrived_at: request.arrived_at,
+      started_at: request.started_at,
+      completed_at: request.completed_at,
+      cancelled_at: request.cancelled_at,
+    },
+  };
+};
+
+module.exports = {
+  createRequest,
+  getUserRequests,
+  getRequestById,
+  cancelRequest,
+  getAvailableRequests,
+  getMechanicRequests,
+  getActiveRequest,
+  acceptRequest,
+  updateRequestStatus,
+  rejectRequest,
+  getRequestTimeline,
+};
+
