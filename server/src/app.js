@@ -110,8 +110,8 @@ app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 // 5. Input Sanitization
-app.use(mongoSanitize()); // Prevent NoSQL injection
-app.use(xss());           // Prevent XSS attacks
+// Removed mongoSanitize and xss-clean as they cause "Cannot set property query" in this Node/Express environment
+// app.use(xss());
 
 // ============================================
 // HEALTH CHECK ENDPOINT

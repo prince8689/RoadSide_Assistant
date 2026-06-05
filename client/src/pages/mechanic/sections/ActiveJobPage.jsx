@@ -68,6 +68,9 @@ const ActiveJobPage = () => {
 
     return () => {
       navigator.geolocation.clearWatch(watchId);
+      if (socket) {
+        socket.off('request:status:updated');
+      }
     };
   }, [activeJob?.id]);
 
