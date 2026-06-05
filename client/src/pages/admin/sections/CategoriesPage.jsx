@@ -9,6 +9,7 @@ const CategoriesPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [form, setForm] = useState({ name: '', description: '', base_price: '', is_active: true });
 
@@ -35,6 +36,8 @@ const CategoriesPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       const payload = { ...form, base_price: Number(form.base_price) };
       if (editingId) {
@@ -48,6 +51,8 @@ const CategoriesPage = () => {
       loadData();
     } catch (err) {
       toast.error('Failed to save category');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -125,8 +130,10 @@ const CategoriesPage = () => {
             </label>
           )}
           <div className="pt-4 flex justify-end gap-3 border-t border-gray-100">
-            <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl">Cancel</button>
-            <button type="submit" className="px-5 py-2.5 bg-primary text-white font-bold rounded-xl">{editingId ? 'Save Changes' : 'Create Category'}</button>
+            <button type="button" onClick={() => setIsModalOpen(false)} disabled={isSubmitting} className="px-5 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl disabled:opacity-50">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="px-5 py-2.5 bg-primary text-white font-bold rounded-xl disabled:opacity-50">
+              {isSubmitting ? 'Saving...' : (editingId ? 'Save Changes' : 'Create Category')}
+            </button>
           </div>
         </form>
       </Modal>

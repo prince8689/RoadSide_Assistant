@@ -14,6 +14,8 @@ import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import NotFound from './components/common/NotFound';
 import ProtectedRoute from './components/common/ProtectedRoute';
+import ErrorBoundary from './components/common/ErrorBoundary';
+import ScrollToTop from './components/common/ScrollToTop';
 
 function App() {
   const { token, user } = useAuthStore();
@@ -32,9 +34,11 @@ function App() {
   };
 
   return (
-    <Router>
-      <Toaster
-        position="top-right"
+    <ErrorBoundary>
+      <Router>
+        <ScrollToTop />
+        <Toaster
+          position="top-right"
         toastOptions={{
           duration: 4000,
           style: {
@@ -88,7 +92,8 @@ function App() {
           </Routes>
         </Suspense>
       </div>
-    </Router>
+      </Router>
+    </ErrorBoundary>
   );
 }
 

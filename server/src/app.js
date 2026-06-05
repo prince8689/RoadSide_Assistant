@@ -12,6 +12,8 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
 
 // Import configurations
 const { connectDB, pool } = require('./config/db');
@@ -59,15 +61,41 @@ const PORT = process.env.PORT || 5000;
 // ============================================
 
 // 1. Helmet — Sets various HTTP headers for security
-//    Protects against XSS, clickjacking, MIME sniffing, etc.
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "wss:", "ws:"],
+    }
+  },
+  crossOriginEmbedderPolicy: false,
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
+}));
 
 // 2. CORS — Cross-Origin Resource Sharing
-//    Allows the React frontend (port 3000) to talk to this API (port 5000)
+const allowedOrigins = [
+  'http://localhost:3000',
+  process.env.CLIENT_URL,
+  process.env.CLIENT_URL_WWW,
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
@@ -78,8 +106,12 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // 4. Body Parsers — Parse incoming JSON and URL-encoded request bodies
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// 5. Input Sanitization
+app.use(mongoSanitize()); // Prevent NoSQL injection
+app.use(xss());           // Prevent XSS attacks
 
 // ============================================
 // HEALTH CHECK ENDPOINT

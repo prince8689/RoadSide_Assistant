@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { loginUser, registerUser, logoutUser, getMe } from '../api/authApi';
+import { loginUser, registerUser, logoutUser, getMe, sendOtp } from '../api/authApi';
+import useRequestStore from './requestStore';
+import useNotificationStore from './notificationStore';
+import { disconnectSocket } from '../socket/socketClient';
 
 const useAuthStore = create(
   persist(
@@ -14,7 +17,8 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const res = await loginUser({ email, password });
-          const { user, token } = res.data.data || res.data;
+          const { user, accessToken, token: fallbackToken } = res.data.data || res.data;
+          const token = accessToken || fallbackToken;
           localStorage.setItem('token', token);
           set({ user, token, isLoading: false });
           return { success: true, role: user.role };
@@ -25,11 +29,25 @@ const useAuthStore = create(
         }
       },
 
+      sendOtp: async (data) => {
+        set({ isLoading: true, error: null });
+        try {
+          const res = await sendOtp(data);
+          set({ isLoading: false });
+          return { success: true, message: res.data.message || 'OTP sent successfully' };
+        } catch (err) {
+          const msg = err.response?.data?.message || err.response?.data?.error || 'Failed to send OTP';
+          set({ isLoading: false, error: msg });
+          return { success: false, error: msg };
+        }
+      },
+
       register: async (data) => {
         set({ isLoading: true, error: null });
         try {
           const res = await registerUser(data);
-          const { user, token } = res.data.data || res.data;
+          const { user, accessToken, token: fallbackToken } = res.data.data || res.data;
+          const token = accessToken || fallbackToken;
           localStorage.setItem('token', token);
           set({ user, token, isLoading: false });
           return { success: true, role: user.role };
@@ -42,8 +60,23 @@ const useAuthStore = create(
 
       logout: async () => {
         try { await logoutUser(); } catch {}
+
+        // Clear all stores
         localStorage.removeItem('token');
-        set({ user: null, token: null });
+        localStorage.removeItem('auth-storage');
+
+        // Reset all Zustand stores
+        useRequestStore.getState().clearActiveRequest();
+        useNotificationStore.setState({
+          notifications: [], unreadCount: 0
+        });
+
+        // Disconnect socket
+        disconnectSocket();
+
+        // Reset auth store
+        set({ user: null, token: null, error: null });
+
         window.location.href = '/login';
       },
 

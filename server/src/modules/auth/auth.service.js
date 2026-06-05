@@ -16,6 +16,7 @@ const { redisClient } = require('../../config/redis');
 const { AppError } = require('../../middleware/errorHandler');
 const { logger } = require('../../utils/logger');
 const { emitDashboardUpdate } = require('../../utils/adminDashboardEmitter');
+const { sendEmail, getOtpEmailTemplate } = require('../../utils/email');
 
 // ============================================
 // CONSTANTS
@@ -86,6 +87,53 @@ const generateRefreshToken = async (user) => {
 };
 
 // ============================================
+// SEND OTP FOR REGISTRATION
+// ============================================
+
+/**
+ * Generate and send an OTP to the user's email for registration.
+ * Checks for existing email/phone before sending.
+ * 
+ * @param {Object} userData - { full_name, email, phone }
+ */
+const sendRegistrationOtp = async (userData) => {
+  const { full_name, email, phone } = userData;
+
+  // 1. Check if email already exists
+  const emailCheck = await query('SELECT id FROM users WHERE email = $1', [email]);
+  if (emailCheck.rows.length > 0) {
+    throw new AppError('Email is already registered', 409);
+  }
+
+  // 2. Check if phone already exists
+  const phoneCheck = await query('SELECT id FROM users WHERE phone = $1', [phone]);
+  if (phoneCheck.rows.length > 0) {
+    throw new AppError('Phone number is already registered', 409);
+  }
+
+  // 3. Generate 6-digit OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+  // 4. Save to Redis (expires in 5 minutes)
+  await redisClient.set(`register_otp:${email}`, otp, 'EX', 300);
+
+  // 5. Send Email
+  const htmlTemplate = getOtpEmailTemplate(otp, full_name);
+  const emailSent = await sendEmail({
+    email,
+    subject: 'Your RoadAssist Registration OTP',
+    message: `Your verification code is: ${otp}. It is valid for 5 minutes.`,
+    html: htmlTemplate
+  });
+
+  if (!emailSent) {
+    throw new AppError('Failed to send verification email. Please try again.', 500);
+  }
+
+  return { message: 'OTP sent successfully to ' + email };
+};
+
+// ============================================
 // REGISTER USER
 // ============================================
 
@@ -100,13 +148,26 @@ const generateRefreshToken = async (user) => {
  * 5. Generate access + refresh tokens
  * 6. Return user data (without password) + tokens
  *
- * @param {Object} userData - { full_name, email, phone, password, role }
+ * @param {Object} userData - { full_name, email, phone, password, role, otp }
  * @returns {Object} { user, accessToken, refreshToken }
  */
 const registerUser = async (userData) => {
-  const { full_name, email, phone, password, role } = userData;
+  const { full_name, email, phone, password, role, otp } = userData;
 
-  // 1. Check if email already exists
+  if (!otp) {
+    throw new AppError('OTP is required for registration', 400);
+  }
+
+  // 1. Verify OTP
+  const storedOtp = await redisClient.get(`register_otp:${email}`);
+  if (!storedOtp) {
+    throw new AppError('OTP expired or not requested. Please request a new OTP.', 400);
+  }
+  if (storedOtp !== otp) {
+    throw new AppError('Invalid OTP provided', 400);
+  }
+
+  // 2. Check if email already exists (double check just in case)
   const emailCheck = await query(
     'SELECT id FROM users WHERE email = $1',
     [email]
@@ -115,7 +176,7 @@ const registerUser = async (userData) => {
     throw new AppError('Email is already registered', 409);
   }
 
-  // 2. Check if phone already exists
+  // 3. Check if phone already exists
   const phoneCheck = await query(
     'SELECT id FROM users WHERE phone = $1',
     [phone]
@@ -124,11 +185,11 @@ const registerUser = async (userData) => {
     throw new AppError('Phone number is already registered', 409);
   }
 
-  // 3. Hash password with bcrypt
+  // 4. Hash password with bcrypt
   const salt = await bcrypt.genSalt(SALT_ROUNDS);
   const password_hash = await bcrypt.hash(password, salt);
 
-  // 4. Insert user into database
+  // 5. Insert user into database
   const result = await query(
     `INSERT INTO users (full_name, email, phone, password_hash, role)
      VALUES ($1, $2, $3, $4, $5)
@@ -151,10 +212,13 @@ const registerUser = async (userData) => {
   const accessToken = generateAccessToken(user);
   const refreshToken = await generateRefreshToken(user);
 
+  // 6. Delete OTP from Redis
+  await redisClient.del(`register_otp:${email}`);
+
   // Update Admin Dashboard
   emitDashboardUpdate();
 
-  // 6. Return user + tokens (password NOT included — RETURNING clause excludes it)
+  // 7. Return user + tokens (password NOT included — RETURNING clause excludes it)
   return {
     user,
     accessToken,
@@ -321,6 +385,7 @@ const revokeRefreshToken = async (userId) => {
 };
 
 module.exports = {
+  sendRegistrationOtp,
   registerUser,
   loginUser,
   getUserById,

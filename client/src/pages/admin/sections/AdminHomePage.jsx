@@ -115,6 +115,7 @@ const AdminHomePage = () => {
           </div>
         </div>
       </div>
+      </div>
     </PageTransition>
   );
 };

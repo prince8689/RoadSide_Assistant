@@ -5,6 +5,7 @@ import { FiStar, FiTool, FiCheckCircle, FiDollarSign, FiMapPin } from 'react-ico
 import useAuthStore from '../../../store/authStore';
 import useMechanicStore from '../../../store/mechanicStore';
 import { updateLocation } from '../../../api/mechanicApi';
+import { getUserLocation } from '../../../utils/geolocation';
 
 const MechanicHomePage = () => {
   const { user } = useAuthStore();
@@ -16,20 +17,16 @@ const MechanicHomePage = () => {
     fetchStats();
   }, []);
 
-  const toggleLocationSharing = () => {
+  const toggleLocationSharing = async () => {
     if (!sharing) {
-      if (!navigator.geolocation) return toast.error('Geolocation not supported');
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          updateLocation(pos.coords.latitude, pos.coords.longitude)
-            .then(() => {
-              toast.success('Location updated successfully');
-              setSharing(true);
-            })
-            .catch(() => toast.error('Failed to update location'));
-        },
-        () => toast.error('Could not get location')
-      );
+      try {
+        const loc = await getUserLocation();
+        await updateLocation(loc.lat, loc.lng);
+        toast.success('Location updated successfully');
+        setSharing(true);
+      } catch (error) {
+        toast.error('Failed to update location');
+      }
     } else {
       setSharing(false);
       toast.success('Location sharing stopped');

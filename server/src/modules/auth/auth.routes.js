@@ -18,9 +18,12 @@ const router = express.Router();
 const authController = require('./auth.controller');
 const { authenticate } = require('../../middleware/auth');
 const validate = require('../../middleware/validate');
-const { registerSchema, loginSchema, refreshTokenSchema } = require('./auth.validation');
+const { registerSchema, sendOtpSchema, loginSchema, refreshTokenSchema } = require('./auth.validation');
 
 // ---- Public Routes (no authentication required) ----
+
+// Send OTP — validates body with sendOtpSchema before hitting controller
+router.post('/send-otp', validate(sendOtpSchema), authController.sendOtp);
 
 // Register — validates body with registerSchema before hitting controller
 router.post('/register', validate(registerSchema), authController.register);

@@ -74,6 +74,55 @@ const registerSchema = Joi.object({
     .messages({
       'any.only': 'Role must be either user or mechanic',
     }),
+    
+  otp: Joi.string()
+    .length(6)
+    .pattern(/^[0-9]+$/)
+    .required()
+    .messages({
+      'string.length': 'OTP must be exactly 6 digits',
+      'string.pattern.base': 'OTP must only contain numbers',
+      'string.empty': 'OTP is required',
+      'any.required': 'OTP is required',
+    }),
+});
+
+// ============================================
+// SEND OTP SCHEMA
+// POST /api/auth/send-otp
+// ============================================
+const sendOtpSchema = Joi.object({
+  full_name: Joi.string()
+    .trim()
+    .min(2)
+    .max(100)
+    .required()
+    .messages({
+      'string.empty': 'Full name is required',
+      'string.min': 'Full name must be at least 2 characters',
+      'any.required': 'Full name is required',
+    }),
+
+  email: Joi.string()
+    .trim()
+    .lowercase()
+    .email()
+    .required()
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'string.empty': 'Email is required',
+      'any.required': 'Email is required',
+    }),
+
+  phone: Joi.string()
+    .trim()
+    .pattern(phonePattern)
+    .required()
+    .messages({
+      'string.pattern.base': phoneMessage,
+      'string.empty': 'Phone number is required',
+      'any.required': 'Phone number is required',
+    }),
 });
 
 // ============================================
@@ -115,6 +164,7 @@ const refreshTokenSchema = Joi.object({
 
 module.exports = {
   registerSchema,
+  sendOtpSchema,
   loginSchema,
   refreshTokenSchema,
 };

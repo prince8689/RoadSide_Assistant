@@ -8,6 +8,7 @@ import 'leaflet/dist/leaflet.css';
 import { getServiceCategories, createRequest } from '../../../api/requestApi';
 import { getMyVehicles } from '../../../api/userApi';
 import useRequestStore from '../../../store/requestStore';
+import { getUserLocation } from '../../../utils/geolocation';
 
 // Fix leaflet icon
 delete L.Icon.Default.prototype._getIconUrl;
@@ -55,16 +56,10 @@ const RequestHelpPage = () => {
         setCategories(catsRes.data.data || []);
         setVehicles(vehsRes.data.data || []);
         
-        // Get user current location
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition((pos) => {
-            setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-            setAddress('Current Location'); // Placeholder
-          }, () => {
-            // Default to Delhi if location denied
-            setLocation({ lat: 28.6139, lng: 77.2090 });
-          });
-        }
+        // Get user current location with new helper
+        const loc = await getUserLocation();
+        setLocation({ lat: loc.lat, lng: loc.lng });
+        setAddress('Current Location'); // Placeholder
       } catch (err) {
         toast.error('Failed to load required data');
       }
@@ -82,6 +77,7 @@ const RequestHelpPage = () => {
   const handleBack = () => setStep(s => s - 1);
 
   const handleSubmit = async () => {
+    if (loading) return; // Prevent double submit
     setLoading(true);
     try {
       await createRequest({

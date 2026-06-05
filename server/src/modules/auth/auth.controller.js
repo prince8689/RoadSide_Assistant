@@ -10,11 +10,27 @@ const authService = require('./auth.service');
 const { success } = require('../../utils/apiResponse');
 
 /**
+ * POST /api/auth/send-otp
+ * Send OTP for registration to verify email.
+ *
+ * Body: { full_name, email, phone }
+ * Returns: 200 + success message
+ */
+const sendOtp = async (req, res, next) => {
+  try {
+    const result = await authService.sendRegistrationOtp(req.body);
+    return success(res, null, result.message, 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * POST /api/auth/register
  * Register a new user or mechanic.
  * Admin accounts can only be created directly in the database.
  *
- * Body: { full_name, email, phone, password, role }
+ * Body: { full_name, email, phone, password, role, otp }
  * Returns: 201 + { user, accessToken, refreshToken }
  */
 const register = async (req, res, next) => {
@@ -109,6 +125,7 @@ const refreshToken = async (req, res, next) => {
 };
 
 module.exports = {
+  sendOtp,
   register,
   login,
   getMe,

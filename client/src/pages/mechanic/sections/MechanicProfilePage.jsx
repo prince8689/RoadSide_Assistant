@@ -39,6 +39,8 @@ const MechanicProfilePage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return; // Prevent double submit
+
     if (!form.business_name || !form.experience_years || form.specializations.length === 0) {
       return toast.error('Please fill required fields and select at least one specialization');
     }

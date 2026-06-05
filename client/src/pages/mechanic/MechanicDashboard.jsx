@@ -157,12 +157,10 @@ const MechanicDashboard = () => {
             <Route path="/history" element={<ReviewsPage />} />
             <Route path="/profile" element={<MechanicProfilePage />} />
           </Routes>
-          >
-            <item.icon className="text-xl" />
-            <span className="text-[10px] font-medium">{item.name}</span>
-          </Link>
-        ))}
-      </div>
+        </div>
+      </main>
+      
+      <MobileNav items={mobileNavItems} />
     </div>
   );
 };

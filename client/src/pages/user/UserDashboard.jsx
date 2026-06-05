@@ -162,12 +162,10 @@ const UserDashboard = () => {
             <Route path="/vehicles" element={<div>Vehicles Page Coming Soon</div>} />
             <Route path="/profile" element={<div>Profile Page Coming Soon</div>} />
           </Routes>
-          >
-            <item.icon className="text-xl" />
-            <span className="text-[10px] font-medium">{item.name}</span>
-          </Link>
-        ))}
-      </div>
+        </div>
+      </main>
+      
+      <MobileNav items={mobileNavItems} />
     </div>
   );
 };
