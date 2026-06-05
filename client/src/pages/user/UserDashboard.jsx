@@ -3,7 +3,8 @@ import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom'
 import { FiHome, FiAlertCircle, FiList, FiSettings, FiLogOut, FiMenu, FiX } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaCarSide } from 'react-icons/fa';
-import useAuthStore from '../../store/authStore';
+import { useSelector, useDispatch } from 'react-redux';
+import { logoutThunk } from '../../store/authStore';
 import NotificationBell from '../../components/common/NotificationBell';
 import MobileNav from '../../components/common/MobileNav';
 
@@ -14,7 +15,9 @@ import TrackingPage from './sections/TrackingPage';
 import MyRequestsPage from './sections/MyRequestsPage';
 
 const UserDashboard = () => {
-  const { user, logout } = useAuthStore();
+  const { user } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
+  const logout = () => dispatch(logoutThunk());
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);

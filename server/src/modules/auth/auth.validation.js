@@ -92,17 +92,6 @@ const registerSchema = Joi.object({
 // POST /api/auth/send-otp
 // ============================================
 const sendOtpSchema = Joi.object({
-  full_name: Joi.string()
-    .trim()
-    .min(2)
-    .max(100)
-    .required()
-    .messages({
-      'string.empty': 'Full name is required',
-      'string.min': 'Full name must be at least 2 characters',
-      'any.required': 'Full name is required',
-    }),
-
   email: Joi.string()
     .trim()
     .lowercase()
@@ -114,14 +103,66 @@ const sendOtpSchema = Joi.object({
       'any.required': 'Email is required',
     }),
 
+  purpose: Joi.string()
+    .valid('register', 'login')
+    .default('register')
+    .messages({
+      'any.only': 'Purpose must be either register or login',
+    }),
+
+  // Optional fields — needed when purpose is "register"
+  full_name: Joi.string()
+    .trim()
+    .min(2)
+    .max(100)
+    .optional()
+    .messages({
+      'string.min': 'Full name must be at least 2 characters',
+    }),
+
   phone: Joi.string()
     .trim()
     .pattern(phonePattern)
-    .required()
+    .optional()
+    .allow('')
     .messages({
       'string.pattern.base': phoneMessage,
-      'string.empty': 'Phone number is required',
-      'any.required': 'Phone number is required',
+    }),
+});
+
+// ============================================
+// VERIFY OTP SCHEMA
+// POST /api/auth/verify-otp
+// ============================================
+const verifyOtpSchema = Joi.object({
+  email: Joi.string()
+    .trim()
+    .lowercase()
+    .email()
+    .required()
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'string.empty': 'Email is required',
+      'any.required': 'Email is required',
+    }),
+
+  otp: Joi.string()
+    .length(6)
+    .pattern(/^[0-9]+$/)
+    .required()
+    .messages({
+      'string.length': 'OTP must be exactly 6 digits',
+      'string.pattern.base': 'OTP must only contain numbers',
+      'string.empty': 'OTP is required',
+      'any.required': 'OTP is required',
+    }),
+
+  purpose: Joi.string()
+    .valid('register', 'login')
+    .default('register')
+    .optional()
+    .messages({
+      'any.only': 'Purpose must be either register or login',
     }),
 });
 
@@ -165,6 +206,7 @@ const refreshTokenSchema = Joi.object({
 module.exports = {
   registerSchema,
   sendOtpSchema,
+  verifyOtpSchema,
   loginSchema,
   refreshTokenSchema,
 };

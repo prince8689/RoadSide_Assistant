@@ -1,18 +1,19 @@
 import { useEffect } from 'react';
 import { getSocket } from '../socket/socketClient';
 import useNotificationStore from '../store/notificationStore';
-import useRequestStore from '../store/requestStore';
+import { useSelector, useDispatch } from 'react-redux';
+import { updateActiveRequest, updateNearbyMechanicLocation } from '../store/requestStore';
 import useMechanicStore from '../store/mechanicStore';
 import useAdminStore from '../store/adminStore';
-import useAuthStore from '../store/authStore';
+import { useSelector } from 'react-redux';
 import { toast } from 'react-hot-toast';
 
 const useSocket = () => {
   const { addNotification, setUnreadCount } = useNotificationStore();
-  const { updateActiveRequest, updateMechanicLocation } = useRequestStore();
+  const dispatch = useDispatch();
   const { addNewRequest, removeFromAvailable, clearActiveJob } = useMechanicStore();
   const { updateLiveStats, fetchRequests } = useAdminStore();
-  const { user } = useAuthStore();
+  const { user } = useSelector((state) => state.auth);
 
   useEffect(() => {
     const socket = getSocket();
@@ -29,13 +30,13 @@ const useSocket = () => {
     });
 
     // Request status updated
-    socket.on('request:status:updated', (data) => {
-      updateActiveRequest(data);
+    socket.on('request:status-update', (data) => {
+      dispatch(updateActiveRequest(data));
+      // Custom notifications can be triggered here
     });
 
-    // Live mechanic location
-    socket.on('mechanic:location:receive', (data) => {
-      updateMechanicLocation(data);
+    socket.on('mechanic:location-update', (data) => {
+      dispatch(updateNearbyMechanicLocation(data));
     });
 
     // Mechanic: New request arrived
@@ -82,6 +83,38 @@ const useSocket = () => {
       }
     };
   }, [user?.role]);
+
+  // Real-time tracking methods
+  const emitLocationUpdate = useCallback((mechanicId, lat, lng, accuracy) => {
+    const socket = getSocket();
+    if (socket) {
+      socket.emit('mechanic:location-update', { mechanicId, lat, lng, accuracy });
+    }
+  }, []);
+
+  const watchMechanic = useCallback((mechanicId, requestId, callback) => {
+    const socket = getSocket();
+    if (socket) {
+      socket.emit('user:watch-mechanic', { mechanicId, requestId });
+      socket.on('tracking:started', callback);
+      socket.on('mechanic:moving', callback);
+    }
+  }, []);
+
+  const stopWatchingMechanic = useCallback((requestId) => {
+    const socket = getSocket();
+    if (socket) {
+      socket.emit('mechanic:stop-tracking', { requestId });
+      socket.off('tracking:started');
+      socket.off('mechanic:moving');
+    }
+  }, []);
+
+  return {
+    emitLocationUpdate,
+    watchMechanic,
+    stopWatchingMechanic,
+  };
 };
 
 export default useSocket;

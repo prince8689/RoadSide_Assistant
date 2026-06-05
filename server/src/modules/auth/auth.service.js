@@ -3,6 +3,7 @@
 // ============================================
 // All authentication business logic lives here.
 // This layer handles:
+//   - OTP generation and verification via PostgreSQL
 //   - Password hashing with bcryptjs (salt 12)
 //   - JWT access token generation (7d)
 //   - JWT refresh token generation (30d) stored in Redis
@@ -16,7 +17,7 @@ const { redisClient } = require('../../config/redis');
 const { AppError } = require('../../middleware/errorHandler');
 const { logger } = require('../../utils/logger');
 const { emitDashboardUpdate } = require('../../utils/adminDashboardEmitter');
-const { sendEmail, getOtpEmailTemplate } = require('../../utils/email');
+const { sendOTP, sendWelcomeEmail } = require('../../utils/email');
 
 // ============================================
 // CONSTANTS
@@ -32,7 +33,7 @@ const REFRESH_TOKEN_REDIS_EXPIRY = 30 * 24 * 60 * 60; // 30 days in seconds
 
 /**
  * Generate a JWT access token.
- * Contains: id, email, role
+ * Contains: userId, email, role
  * Expires in: 7 days (configurable via .env)
  *
  * @param {Object} user - User object with id, email, role
@@ -42,6 +43,7 @@ const generateAccessToken = (user) => {
   return jwt.sign(
     {
       id: user.id,
+      userId: user.id,
       email: user.email,
       role: user.role,
     },
@@ -87,14 +89,96 @@ const generateRefreshToken = async (user) => {
 };
 
 // ============================================
-// SEND OTP FOR REGISTRATION
+// GENERATE AND SEND OTP
 // ============================================
 
 /**
- * Generate and send an OTP to the user's email for registration.
- * Checks for existing email/phone before sending.
- * 
+ * Generate a 6-digit OTP, save it to the database, and send via email.
+ *
+ * Steps:
+ * 1. Generate cryptographically random 6-digit OTP
+ * 2. Delete any existing OTP for the same email (prevent stacking)
+ * 3. Insert new OTP into `otps` table with 15-minute expiry
+ * 4. Send OTP email (non-blocking — failure is logged but doesn't break flow)
+ *
+ * @param {string} email - The email address to send OTP to
+ * @param {string} [name] - Optional name for email personalization
+ * @param {string} [purpose='register'] - Purpose: 'register' or 'login'
+ * @returns {Promise<{message: string}>} Success message
+ */
+const generateAndSendOTP = async (email, name, purpose = 'register') => {
+  // 1. Generate 6-digit OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+  // 2. Delete any existing OTP for the same email
+  await query('DELETE FROM otps WHERE email = $1', [email]);
+
+  // 3. Insert new OTP into database with 15-minute expiry
+  await query(
+    `INSERT INTO otps (email, otp, purpose, expires_at, created_at)
+     VALUES ($1, $2, $3, NOW() + INTERVAL '15 minutes', NOW())`,
+    [email, otp, purpose]
+  );
+
+  logger.info(`OTP generated for ${email} (purpose: ${purpose})`);
+
+  // 4. Send OTP email — wrapped in try/catch so failure doesn't break the flow
+  try {
+    await sendOTP(email, otp, name || 'User');
+  } catch (emailError) {
+    logger.error(`Failed to send OTP email to ${email}: ${emailError.message}`);
+    // Don't throw — OTP is saved in DB, user can request resend
+  }
+
+  return { message: `OTP sent successfully to ${email}` };
+};
+
+// ============================================
+// VERIFY OTP
+// ============================================
+
+/**
+ * Verify an OTP code against the database.
+ *
+ * Steps:
+ * 1. Query otps table for matching email + otp that hasn't expired
+ * 2. If not found → throw error
+ * 3. If found → delete all OTPs for that email (one-time use)
+ *
+ * @param {string} email - Email address the OTP was sent to
+ * @param {string} otp - The 6-digit OTP to verify
+ * @returns {Promise<{verified: boolean}>} Verification result
+ * @throws {AppError} If OTP is invalid or expired
+ */
+const verifyOTP = async (email, otp) => {
+  // 1. Check for valid, non-expired OTP
+  const result = await query(
+    'SELECT * FROM otps WHERE email = $1 AND otp = $2 AND expires_at > NOW()',
+    [email, otp]
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError('Invalid or expired OTP', 400);
+  }
+
+  // 2. Delete all OTPs for this email (one-time use)
+  await query('DELETE FROM otps WHERE email = $1', [email]);
+
+  logger.info(`OTP verified successfully for ${email}`);
+
+  return { verified: true };
+};
+
+// ============================================
+// SEND REGISTRATION OTP (Legacy + New)
+// ============================================
+
+/**
+ * Generate and send OTP for registration.
+ * Validates that email and phone are not already registered before sending.
+ *
  * @param {Object} userData - { full_name, email, phone }
+ * @returns {Promise<{message: string}>} Success message
  */
 const sendRegistrationOtp = async (userData) => {
   const { full_name, email, phone } = userData;
@@ -106,31 +190,15 @@ const sendRegistrationOtp = async (userData) => {
   }
 
   // 2. Check if phone already exists
-  const phoneCheck = await query('SELECT id FROM users WHERE phone = $1', [phone]);
-  if (phoneCheck.rows.length > 0) {
-    throw new AppError('Phone number is already registered', 409);
+  if (phone) {
+    const phoneCheck = await query('SELECT id FROM users WHERE phone = $1', [phone]);
+    if (phoneCheck.rows.length > 0) {
+      throw new AppError('Phone number is already registered', 409);
+    }
   }
 
-  // 3. Generate 6-digit OTP
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-  // 4. Save to Redis (expires in 5 minutes)
-  await redisClient.set(`register_otp:${email}`, otp, 'EX', 300);
-
-  // 5. Send Email
-  const htmlTemplate = getOtpEmailTemplate(otp, full_name);
-  const emailSent = await sendEmail({
-    email,
-    subject: 'Your RoadAssist Registration OTP',
-    message: `Your verification code is: ${otp}. It is valid for 5 minutes.`,
-    html: htmlTemplate
-  });
-
-  if (!emailSent) {
-    throw new AppError('Failed to send verification email. Please try again.', 500);
-  }
-
-  return { message: 'OTP sent successfully to ' + email };
+  // 3. Generate and send OTP
+  return await generateAndSendOTP(email, full_name, 'register');
 };
 
 // ============================================
@@ -141,15 +209,18 @@ const sendRegistrationOtp = async (userData) => {
  * Register a new user.
  *
  * Steps:
- * 1. Check if email already exists → 409 Conflict
- * 2. Check if phone already exists → 409 Conflict
- * 3. Hash password with bcrypt (salt 12)
- * 4. Insert user into database
- * 5. Generate access + refresh tokens
- * 6. Return user data (without password) + tokens
+ * 1. Verify OTP from database
+ * 2. Check if email already exists → 409 Conflict
+ * 3. Check if phone already exists → 409 Conflict
+ * 4. Hash password with bcrypt (salt 12)
+ * 5. Insert user into database
+ * 6. If mechanic: create mechanic profile
+ * 7. Generate access + refresh tokens
+ * 8. Send welcome email (non-blocking)
+ * 9. Return user data (without password) + tokens
  *
  * @param {Object} userData - { full_name, email, phone, password, role, otp }
- * @returns {Object} { user, accessToken, refreshToken }
+ * @returns {Promise<{user: Object, accessToken: string, refreshToken: string}>}
  */
 const registerUser = async (userData) => {
   const { full_name, email, phone, password, role, otp } = userData;
@@ -158,14 +229,8 @@ const registerUser = async (userData) => {
     throw new AppError('OTP is required for registration', 400);
   }
 
-  // 1. Verify OTP
-  const storedOtp = await redisClient.get(`register_otp:${email}`);
-  if (!storedOtp) {
-    throw new AppError('OTP expired or not requested. Please request a new OTP.', 400);
-  }
-  if (storedOtp !== otp) {
-    throw new AppError('Invalid OTP provided', 400);
-  }
+  // 1. Verify OTP from database
+  await verifyOTP(email, otp);
 
   // 2. Check if email already exists (double check just in case)
   const emailCheck = await query(
@@ -177,12 +242,14 @@ const registerUser = async (userData) => {
   }
 
   // 3. Check if phone already exists
-  const phoneCheck = await query(
-    'SELECT id FROM users WHERE phone = $1',
-    [phone]
-  );
-  if (phoneCheck.rows.length > 0) {
-    throw new AppError('Phone number is already registered', 409);
+  if (phone) {
+    const phoneCheck = await query(
+      'SELECT id FROM users WHERE phone = $1',
+      [phone]
+    );
+    if (phoneCheck.rows.length > 0) {
+      throw new AppError('Phone number is already registered', 409);
+    }
   }
 
   // 4. Hash password with bcrypt
@@ -199,7 +266,7 @@ const registerUser = async (userData) => {
 
   const user = result.rows[0];
 
-  // 4b. If mechanic, create mechanic profile
+  // 6. If mechanic, create mechanic profile
   if (user.role === 'mechanic') {
     await query(
       `INSERT INTO mechanic_profiles (user_id)
@@ -208,17 +275,22 @@ const registerUser = async (userData) => {
     );
   }
 
-  // 5. Generate tokens
+  // 7. Generate tokens
   const accessToken = generateAccessToken(user);
   const refreshToken = await generateRefreshToken(user);
 
-  // 6. Delete OTP from Redis
-  await redisClient.del(`register_otp:${email}`);
+  // 8. Send welcome email (non-blocking)
+  try {
+    await sendWelcomeEmail(email, full_name, user.role);
+  } catch (emailError) {
+    logger.error(`Failed to send welcome email to ${email}: ${emailError.message}`);
+    // Don't break registration flow if email fails
+  }
 
   // Update Admin Dashboard
   emitDashboardUpdate();
 
-  // 7. Return user + tokens (password NOT included — RETURNING clause excludes it)
+  // 9. Return user + tokens (password NOT included — RETURNING clause excludes it)
   return {
     user,
     accessToken,
@@ -242,7 +314,7 @@ const registerUser = async (userData) => {
  *
  * @param {string} email - User's email
  * @param {string} password - User's plain text password
- * @returns {Object} { user, accessToken, refreshToken }
+ * @returns {Promise<{user: Object, accessToken: string, refreshToken: string}>}
  */
 const loginUser = async (email, password) => {
   // 1. Find user by email
@@ -293,7 +365,7 @@ const loginUser = async (email, password) => {
  * Never returns password_hash.
  *
  * @param {string} id - User UUID
- * @returns {Object} User data without password
+ * @returns {Promise<Object>} User data without password
  */
 const getUserById = async (id) => {
   const result = await query(
@@ -324,7 +396,7 @@ const getUserById = async (id) => {
  * 5. Return new access token
  *
  * @param {string} refreshToken - JWT refresh token
- * @returns {Object} { accessToken, user }
+ * @returns {Promise<{accessToken: string, user: Object}>}
  */
 const refreshAccessToken = async (refreshToken) => {
   // 1. Verify the refresh token
@@ -385,6 +457,8 @@ const revokeRefreshToken = async (userId) => {
 };
 
 module.exports = {
+  generateAndSendOTP,
+  verifyOTP,
   sendRegistrationOtp,
   registerUser,
   loginUser,

@@ -7,7 +7,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getServiceCategories, createRequest } from '../../../api/requestApi';
 import { getMyVehicles } from '../../../api/userApi';
-import useRequestStore from '../../../store/requestStore';
+import { useSelector, useDispatch } from 'react-redux';
+import { fetchActiveRequestThunk, createServiceRequestThunk } from '../../../store/requestStore';
 import { getUserLocation } from '../../../utils/geolocation';
 
 // Fix leaflet icon
@@ -41,7 +42,9 @@ const RequestHelpPage = () => {
   const [description, setDescription] = useState('');
 
   const navigate = useNavigate();
-  const { fetchActiveRequest, activeRequest } = useRequestStore();
+  const dispatch = useDispatch();
+  const { activeRequest } = useSelector(state => state.request);
+  const fetchActiveRequest = () => dispatch(fetchActiveRequestThunk());
 
   useEffect(() => {
     // If user already has an active request, redirect to tracking

@@ -188,97 +188,86 @@ const initSocket = (server) => {
     // ============================================
     // MECHANIC LOCATION EVENTS
     // ============================================
-    socket.on(EVENTS.MECHANIC_LOCATION_UPDATE, safeHandler(async (data) => {
-      if (!socketRateLimit(id, 'location:update', 60)) {
-        return socket.emit('error', { message: 'Too many location updates' });
-      }
-
-      if (role !== 'mechanic') {
-        return socket.emit('error', { message: 'Only mechanics can update location' });
-      }
-
-      const { lat, lng, requestId } = data;
-
-      // Step 1: Validate lat/lng
-      if (typeof lat !== 'number' || lat < -90 || lat > 90 ||
-          typeof lng !== 'number' || lng < -180 || lng > 180) {
-        return socket.emit('error', { message: 'Invalid location values' });
-      }
-
-      // Optimization: Debounce Location Updates
-      const lastUpdate = lastLocationUpdate.get(id);
-      const now = Date.now();
-      if (lastUpdate) {
-        const timeDiff = now - lastUpdate.time;
-        const latDiff = Math.abs(lat - lastUpdate.lat);
-        const lngDiff = Math.abs(lng - lastUpdate.lng);
-
-        if (latDiff < 0.0001 && lngDiff < 0.0001 && timeDiff < 3000) {
-          return socket.emit('mechanic:location:ack', {
-            success: true,
-            skipped: true
-          });
-        }
-      }
-
-      lastLocationUpdate.set(id, { lat, lng, time: now });
-
-      // Step 3: Save to Redis with 5 min expiry
-      await redisClient.setex(
-        `mechanic:location:${id}`,
-        300,
-        JSON.stringify({
-          lat,
-          lng,
-          updatedAt: new Date(),
-          isOnline: true
-        })
+    socket.on('mechanic:location-update', safeHandler(async (data) => {
+      if (role !== 'mechanic') return;
+      const { mechanicId, lat, lng, accuracy } = data;
+      
+      // Update location via service
+      const searchService = require('../modules/search/search.service');
+      await searchService.updateMechanicLocation(mechanicId, lat, lng, accuracy);
+      
+      // Emit to mechanic's own room
+      io.to(`mechanic:${mechanicId}`).emit('location:updated', { lat, lng, timestamp: new Date() });
+      
+      // Find active job
+      const activeJobRes = await query(
+        'SELECT id, user_id FROM service_requests WHERE mechanic_id = $1 AND status IN ($2, $3)',
+        [mechanicId, 'accepted', 'en_route']
       );
-
-      // Step 4: Save to DB
-      await query(
-        'UPDATE mechanic_profiles SET current_lat = $1, current_lng = $2, updated_at = NOW() WHERE user_id = $3',
-        [lat, lng, id]
-      );
-
-      // Step 5: Emit to request room if provided
-      if (requestId) {
-        io.to(`request:${requestId}`).emit(EVENTS.MECHANIC_LOCATION_RECEIVE, {
-          mechanicId: id,
-          lat,
-          lng,
-          updatedAt: new Date()
+      
+      if (activeJobRes.rows.length > 0) {
+        const job = activeJobRes.rows[0];
+        // Calculate ETA assuming 30km/h and we need user location to do this.
+        // For simplicity we emit mechanic:moving and calculate ETA on client side (Google Maps Directions)
+        io.to(`user:${job.user_id}`).emit('mechanic:moving', { 
+          lat, lng, mechanicId, timestamp: new Date() 
+        });
+        io.to(`tracking:${job.id}`).emit('mechanic:moving', { 
+          lat, lng, mechanicId, timestamp: new Date() 
         });
       }
-
-      // Step 6: Ack
-      socket.emit('mechanic:location:ack', { success: true });
-    }));
-
-    socket.on('mechanic:go:offline', safeHandler(async () => {
-      if (role !== 'mechanic') return;
-      await redisClient.del(`mechanic:location:${id}`);
-      await query('UPDATE mechanic_profiles SET is_available = false WHERE user_id = $1', [id]);
     }));
 
     // ============================================
     // USER WATCH MECHANIC EVENTS
     // ============================================
-    socket.on('user:watch:mechanic', safeHandler(async (data) => {
+    socket.on('user:watch-mechanic', safeHandler(async (data) => {
       const { requestId, mechanicId } = data;
       
-      // In a real app, verify request belongs to user and mechanic is assigned
-      socket.join(`request:${requestId}`);
-
-      // Send current mechanic location immediately from Redis
-      const locationData = await redisClient.get(`mechanic:location:${mechanicId}`);
-      if (locationData) {
-        socket.emit(EVENTS.MECHANIC_LOCATION_RECEIVE, JSON.parse(locationData));
+      // User joins tracking room
+      socket.join(`tracking:${requestId}`);
+      
+      // Send current mechanic location
+      const mechRes = await query('SELECT latitude, longitude FROM mechanic_profiles WHERE id = $1', [mechanicId]);
+      if (mechRes.rows.length > 0 && mechRes.rows[0].latitude) {
+        socket.emit('tracking:started', { 
+          lat: mechRes.rows[0].latitude, 
+          lng: mechRes.rows[0].longitude 
+        });
       }
     }));
 
-    socket.on('user:unwatch:mechanic', safeHandler(async (data) => {
-      socket.leave(`request:${data.requestId}`);
+    socket.on('mechanic:stop-tracking', safeHandler(async (data) => {
+      socket.leave(`tracking:${data.requestId}`);
+      // Notify users in room
+      io.to(`tracking:${data.requestId}`).emit('tracking:ended');
+    }));
+
+    // ============================================
+    // MECHANIC STATUS CHANGE
+    // ============================================
+    socket.on('mechanic:status-change', safeHandler(async (data) => {
+      if (role !== 'mechanic') return;
+      const { status } = data;
+      
+      // Find mechanic profile ID
+      const mechRes = await query('SELECT id, latitude, longitude FROM mechanic_profiles WHERE user_id = $1', [id]);
+      if (mechRes.rows.length === 0) return;
+      const mechanic = mechRes.rows[0];
+      
+      const isAvailable = status === 'available';
+      const isOnDuty = status !== 'offline';
+      
+      await query(
+        'UPDATE mechanic_profiles SET is_available = $1, is_on_duty = $2 WHERE id = $3',
+        [isAvailable, isOnDuty, mechanic.id]
+      );
+      
+      if (isAvailable && mechanic.latitude && mechanic.longitude) {
+        // Broadcast to users within 10km (optimistic broadcast)
+        // A better approach would be checking users' exact location, but simplified broadcast for now:
+        socket.broadcast.emit('mechanic:available', { mechanicId: mechanic.id });
+      }
     }));
 
     // ============================================

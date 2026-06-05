@@ -1,7 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useEffect, lazy, Suspense } from 'react';
-import useAuthStore from './store/authStore';
+import { useSelector, useDispatch } from 'react-redux';
+import { getMeThunk } from './store/authStore';
 import { connectSocket } from './socket/socketClient';
 
 // Lazy load dashboards
@@ -16,9 +17,18 @@ import NotFound from './components/common/NotFound';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import ScrollToTop from './components/common/ScrollToTop';
+import GoogleMapsProvider from './components/maps/GoogleMapsProvider';
 
 function App() {
-  const { token, user } = useAuthStore();
+  const { token, user } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
+
+  // On app load, verify token
+  useEffect(() => {
+    if (token && !user) {
+      dispatch(getMeThunk());
+    }
+  }, [token, dispatch, user]);
 
   // Connect socket when logged in
   useEffect(() => {
@@ -35,64 +45,66 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <Router>
-        <ScrollToTop />
-        <Toaster
-          position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            borderRadius: '12px',
-            fontFamily: 'Inter, sans-serif',
-            fontSize: '14px',
-          },
-          success: { iconTheme: { primary: '#28A745', secondary: '#fff' } },
-          error: { iconTheme: { primary: '#DC3545', secondary: '#fff' } },
-        }}
-      />
-      <div className="font-sans min-h-screen bg-light">
-        <Suspense fallback={
-          <div className="min-h-screen flex items-center justify-center bg-light">
-            <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      <GoogleMapsProvider>
+        <Router>
+          <ScrollToTop />
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                borderRadius: '12px',
+                fontFamily: 'Inter, sans-serif',
+                fontSize: '14px',
+              },
+              success: { iconTheme: { primary: '#28A745', secondary: '#fff' } },
+              error: { iconTheme: { primary: '#DC3545', secondary: '#fff' } },
+            }}
+          />
+          <div className="font-sans min-h-screen bg-light">
+            <Suspense fallback={
+              <div className="min-h-screen flex items-center justify-center bg-light">
+                <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            }>
+              <Routes>
+                {/* Public routes */}
+                <Route path="/login" element={
+                  token ? <Navigate to={getHomePath()} /> : <LoginPage />
+                } />
+                <Route path="/register" element={
+                  token ? <Navigate to={getHomePath()} /> : <RegisterPage />
+                } />
+
+                {/* User routes */}
+                <Route path="/dashboard/*" element={
+                  <ProtectedRoute allowedRoles={['user']}>
+                    <UserDashboard />
+                  </ProtectedRoute>
+                } />
+
+                {/* Mechanic routes */}
+                <Route path="/mechanic/*" element={
+                  <ProtectedRoute allowedRoles={['mechanic']}>
+                    <MechanicDashboard />
+                  </ProtectedRoute>
+                } />
+
+                {/* Admin routes */}
+                <Route path="/admin/*" element={
+                  <ProtectedRoute allowedRoles={['admin']}>
+                    <AdminDashboard />
+                  </ProtectedRoute>
+                } />
+
+                {/* Default redirect */}
+                <Route path="/" element={<Navigate to={getHomePath()} />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </div>
-        }>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={
-              token ? <Navigate to={getHomePath()} /> : <LoginPage />
-            } />
-            <Route path="/register" element={
-              token ? <Navigate to={getHomePath()} /> : <RegisterPage />
-            } />
-
-            {/* User routes */}
-            <Route path="/dashboard/*" element={
-              <ProtectedRoute allowedRoles={['user']}>
-                <UserDashboard />
-              </ProtectedRoute>
-            } />
-
-            {/* Mechanic routes */}
-            <Route path="/mechanic/*" element={
-              <ProtectedRoute allowedRoles={['mechanic']}>
-                <MechanicDashboard />
-              </ProtectedRoute>
-            } />
-
-            {/* Admin routes */}
-            <Route path="/admin/*" element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <AdminDashboard />
-              </ProtectedRoute>
-            } />
-
-            {/* Default redirect */}
-            <Route path="/" element={<Navigate to={getHomePath()} />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </div>
-      </Router>
+        </Router>
+      </GoogleMapsProvider>
     </ErrorBoundary>
   );
 }

@@ -16,7 +16,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 
 // Import configurations
-const { connectDB, pool } = require('./config/db');
+const { connectDB, pool, runMigrations } = require('./config/db');
 const { connectRedis, redisClient } = require('./config/redis');
 
 // Import logger
@@ -32,6 +32,7 @@ const {
 
 // Import route modules
 const authRoutes = require('./modules/auth/auth.routes');
+const searchRoutes = require('./modules/search/search.routes');
 const userRoutes = require('./modules/users/user.routes');
 const mechanicRoutes = require('./modules/mechanics/mechanic.routes');
 const requestRoutes = require('./modules/requests/request.routes');
@@ -82,6 +83,7 @@ app.use(helmet({
 // 2. CORS — Cross-Origin Resource Sharing
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:5173',
   process.env.CLIENT_URL,
   process.env.CLIENT_URL_WWW,
 ].filter(Boolean);
@@ -216,6 +218,9 @@ const startServer = async () => {
   try {
     // 1. Connect to PostgreSQL
     await connectDB();
+
+    // 1b. Run Database Migrations
+    await runMigrations();
 
     // 2. Connect to Redis
     await connectRedis();

@@ -1,101 +1,405 @@
-import { useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'react-hot-toast';
-import { FiStar, FiTool, FiCheckCircle, FiDollarSign, FiMapPin } from 'react-icons/fi';
-import useAuthStore from '../../../store/authStore';
+import { GoogleMap, Marker, Circle, DirectionsRenderer } from '@react-google-maps/api';
+import { FiMapPin, FiNavigation, FiClock, FiDollarSign, FiCheck, FiX, FiActivity } from 'react-icons/fi';
+import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
+
+import useSocket from '../../../hooks/useSocket';
 import useMechanicStore from '../../../store/mechanicStore';
-import { updateLocation } from '../../../api/mechanicApi';
-import { getUserLocation } from '../../../utils/geolocation';
+import { getCurrentLocation, watchLocation, stopWatchingLocation } from '../../../utils/geolocation';
+import { notifyNewRequest } from '../../../utils/browserNotifications';
+import axiosInst from '../../../api/axios';
+import PageTransition from '../../../components/common/PageTransition';
+import { getSocket } from '../../../socket/socketClient';
+
+const mapContainerStyle = { width: '100%', height: '100%', borderRadius: '16px' };
+const mapOptions = {
+  disableDefaultUI: true,
+  zoomControl: false,
+  styles: [{ featureType: "poi", stylers: [{ visibility: "off" }] }]
+};
 
 const MechanicHomePage = () => {
-  const { user } = useAuthStore();
-  const { profile, stats, fetchStats, isAvailable } = useMechanicStore();
+  const dispatch = useDispatch();
   const navigate = useNavigate();
-  const [sharing, setSharing] = useState(false);
+  const { user } = useSelector(state => state.auth);
+  const { emitLocationUpdate } = useSocket();
+  
+  const { profile, activeJob, fetchActiveJob } = useMechanicStore();
 
+  const [isOnline, setIsOnline] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [watchId, setWatchId] = useState(null);
+  const [locationInterval, setLocationInterval] = useState(null);
+  const [incomingRequest, setIncomingRequest] = useState(null);
+  const [countdown, setCountdown] = useState(60);
+  const [directions, setDirections] = useState(null);
+  
+  const mapRef = useRef(null);
+
+  // Check initial state
   useEffect(() => {
-    fetchStats();
-  }, []);
+    fetchActiveJob();
+    // Assuming profile has is_available we could initialize isOnline, but 
+    // it's safer to require manual opt-in on mount.
+    
+    const socket = getSocket();
+    if (socket) {
+      socket.on('new:request', handleIncomingRequest);
+    }
+    
+    return () => {
+      if (socket) socket.off('new:request', handleIncomingRequest);
+      if (watchId) stopWatchingLocation(watchId);
+      if (locationInterval) clearInterval(locationInterval);
+    };
+  }, []); // eslint-disable-line
 
-  const toggleLocationSharing = async () => {
-    if (!sharing) {
+  // Handle incoming request modal
+  const handleIncomingRequest = (data) => {
+    setIncomingRequest(data);
+    setCountdown(60);
+    notifyNewRequest(data.userName, data.serviceType, data.distance);
+  };
+
+  // Countdown timer for incoming request
+  useEffect(() => {
+    let timer;
+    if (incomingRequest && countdown > 0) {
+      timer = setInterval(() => setCountdown(prev => prev - 1), 1000);
+    } else if (countdown === 0 && incomingRequest) {
+      handleDeclineRequest(incomingRequest.requestId);
+    }
+    return () => clearInterval(timer);
+  }, [incomingRequest, countdown]);
+
+  // Handle Online Toggle
+  const toggleOnlineStatus = async () => {
+    const newStatus = !isOnline;
+    
+    if (newStatus) {
       try {
-        const loc = await getUserLocation();
-        await updateLocation(loc.lat, loc.lng);
-        toast.success('Location updated successfully');
-        setSharing(true);
-      } catch (error) {
-        toast.error('Failed to update location');
+        // 1. Get initial location
+        const loc = await getCurrentLocation();
+        setCurrentLocation(loc);
+        
+        // 2. Start watching for high-accuracy changes
+        const id = watchLocation(
+          (pos) => setCurrentLocation(pos),
+          (err) => toast.error(`Location issue: ${err}`)
+        );
+        setWatchId(id);
+
+        // 3. Emit status change
+        const socket = getSocket();
+        if (socket) socket.emit('mechanic:status-change', { status: 'available' });
+
+        // 4. Send location every 10 seconds to keep Redis / active jobs updated
+        emitLocationUpdate(user.id, loc.lat, loc.lng, loc.accuracy);
+        const interval = setInterval(() => {
+          getCurrentLocation().then(pos => {
+            emitLocationUpdate(user.id, pos.lat, pos.lng, pos.accuracy);
+          }).catch(console.error);
+        }, 10000);
+        setLocationInterval(interval);
+        
+        setIsOnline(true);
+        toast.success("You are now online and visible to users!");
+      } catch (err) {
+        toast.error(err);
       }
     } else {
-      setSharing(false);
-      toast.success('Location sharing stopped');
+      // Go Offline
+      if (watchId) stopWatchingLocation(watchId);
+      if (locationInterval) clearInterval(locationInterval);
+      
+      const socket = getSocket();
+      if (socket) socket.emit('mechanic:status-change', { status: 'offline' });
+      
+      setIsOnline(false);
+      setWatchId(null);
+      setLocationInterval(null);
+      toast('You are now offline', { icon: '⚫' });
+    }
+  };
+
+  const handleAcceptRequest = async (requestId) => {
+    try {
+      await axiosInst.post(`/requests/${requestId}/accept`);
+      setIncomingRequest(null);
+      toast.success('Job Accepted!');
+      fetchActiveJob(); // This will pull the job into state and show the Active Job Map
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to accept job');
+      setIncomingRequest(null);
+    }
+  };
+
+  const handleDeclineRequest = async (requestId) => {
+    try {
+      await axiosInst.post(`/requests/${requestId}/decline`);
+    } catch (err) { console.error(err); }
+    setIncomingRequest(null);
+  };
+
+  const handleUpdateJobStatus = async (status) => {
+    if (!activeJob) return;
+    try {
+      await axiosInst.put(`/requests/${activeJob.id}/status`, { status });
+      toast.success(`Status updated to: ${status.replace('_', ' ')}`);
+      fetchActiveJob();
+      
+      const socket = getSocket();
+      if (socket) {
+        if (status === 'completed') socket.emit('mechanic:status-change', { status: 'available' });
+        else socket.emit('mechanic:status-change', { status: 'busy' });
+      }
+    } catch (err) {
+      toast.error('Failed to update status');
+    }
+  };
+
+  // Google Maps Directions for Active Job
+  useEffect(() => {
+    if (activeJob && currentLocation && activeJob.user_lat && activeJob.user_lng && window.google) {
+      const directionsService = new window.google.maps.DirectionsService();
+      directionsService.route(
+        {
+          origin: { lat: currentLocation.lat, lng: currentLocation.lng },
+          destination: { lat: parseFloat(activeJob.user_lat), lng: parseFloat(activeJob.user_lng) },
+          travelMode: window.google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          if (status === window.google.maps.DirectionsStatus.OK) {
+            setDirections(result);
+          }
+        }
+      );
+    } else {
+      setDirections(null);
+    }
+  }, [activeJob, currentLocation]);
+
+  const openNavigation = () => {
+    if (activeJob) {
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${activeJob.user_lat},${activeJob.user_lng}&travelmode=driving`;
+      window.open(url, '_blank');
     }
   };
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-6xl mx-auto">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-dark">Welcome, {user?.full_name.split(' ')[0]}! 👋</h1>
-        <p className="text-muted mt-1">{profile?.business_name || 'Complete your profile to get started'}</p>
-      </div>
-
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center">
-          <FiStar className="text-3xl text-yellow-500 mb-2" />
-          <span className="text-2xl font-bold text-dark">{stats?.rating || '0.0'}</span>
-          <span className="text-sm text-muted">Rating</span>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center">
-          <FiTool className="text-3xl text-blue-500 mb-2" />
-          <span className="text-2xl font-bold text-dark">{stats?.total_jobs || 0}</span>
-          <span className="text-sm text-muted">Total Jobs</span>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center">
-          <FiCheckCircle className="text-3xl text-green-500 mb-2" />
-          <span className="text-2xl font-bold text-dark">{stats?.completed_jobs || 0}</span>
-          <span className="text-sm text-muted">Done</span>
-        </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center">
-          <FiDollarSign className="text-3xl text-primary mb-2" />
-          <span className="text-2xl font-bold text-dark">₹{stats?.total_earnings || 0}</span>
-          <span className="text-sm text-muted">Earned</span>
-        </div>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Quick Actions / Location */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 h-fit space-y-4">
-          <h3 className="text-lg font-bold text-dark">Quick Actions</h3>
+    <PageTransition>
+      <div className="pb-24 max-w-lg mx-auto md:max-w-4xl space-y-6">
+        
+        {/* Toggle Online/Offline */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-lg text-gray-900 mb-1 flex items-center gap-2">
+              Status: 
+              {isOnline ? <span className="text-green-500 flex items-center gap-1"><span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span> Online</span> 
+                        : <span className="text-gray-500 flex items-center gap-1"><div className="w-3 h-3 bg-gray-400 rounded-full"></div> Offline</span>}
+            </h2>
+            <p className="text-sm text-gray-500">
+              {isOnline ? "You are visible to users and can receive job requests." : "Go online to start receiving jobs in your area."}
+            </p>
+          </div>
+          
           <button 
-            onClick={toggleLocationSharing}
-            disabled={!isAvailable}
-            className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${
-              !isAvailable ? 'bg-gray-100 text-gray-400 cursor-not-allowed' :
-              sharing ? 'bg-green-50 text-green-600 border border-green-200' : 'bg-primary text-white hover:bg-orange-600 shadow-md'
-            }`}
+            onClick={toggleOnlineStatus}
+            className={`relative inline-flex h-10 w-20 items-center rounded-full transition-colors focus:outline-none ${isOnline ? 'bg-green-500' : 'bg-gray-200'}`}
           >
-            <FiMapPin /> {sharing ? 'Location Sharing ON' : 'Share Current Location'}
+            <span className={`${isOnline ? 'translate-x-11' : 'translate-x-1'} inline-block h-8 w-8 transform rounded-full bg-white transition-transform shadow-sm`} />
           </button>
-          {!isAvailable && <p className="text-xs text-muted text-center">You must be 'Available' to share location.</p>}
         </div>
 
-        {/* Shortcuts */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-          <h3 className="text-lg font-bold text-dark">Dashboard Hub</h3>
-          <button onClick={() => navigate('/mechanic/requests')} className="w-full btn-outline flex justify-between items-center bg-gray-50">
-            <span>View New Requests</span>
-            <span className="text-primary font-bold">→</span>
-          </button>
-          <button onClick={() => navigate('/mechanic/active-job')} className="w-full btn-outline flex justify-between items-center bg-gray-50 border-blue-200 text-blue-600">
-            <span>Go to Active Job</span>
-            <span className="font-bold">→</span>
-          </button>
-        </div>
+        {/* MAIN VIEW: Idle Map vs Active Job Map */}
+        {!activeJob ? (
+          /* Idle Map View */
+          <div className="bg-white rounded-2xl p-2 shadow-sm border border-gray-100 h-[300px] relative">
+            {!currentLocation ? (
+              <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                <FiMapPin size={32} className="mb-2 opacity-50" />
+                <p>Location unavailable. Go online to view map.</p>
+              </div>
+            ) : (
+              <GoogleMap
+                mapContainerStyle={mapContainerStyle}
+                options={mapOptions}
+                center={{ lat: currentLocation.lat, lng: currentLocation.lng }}
+                zoom={12}
+              >
+                <Marker 
+                  position={{ lat: currentLocation.lat, lng: currentLocation.lng }}
+                  icon={{
+                    path: window.google.maps.SymbolPath.CIRCLE,
+                    fillColor: isOnline ? '#28A745' : '#6C757D',
+                    fillOpacity: 1,
+                    strokeWeight: 3,
+                    strokeColor: '#FFFFFF',
+                    scale: 8,
+                  }}
+                />
+                <Circle
+                  center={{ lat: currentLocation.lat, lng: currentLocation.lng }}
+                  radius={profile?.service_radius_km ? profile.service_radius_km * 1000 : 10000} // Default 10km
+                  options={{
+                    fillColor: isOnline ? '#28A745' : '#6C757D',
+                    fillOpacity: 0.05,
+                    strokeColor: isOnline ? '#28A745' : '#6C757D',
+                    strokeOpacity: 0.2,
+                    strokeWeight: 1,
+                  }}
+                />
+              </GoogleMap>
+            )}
+            {isOnline && (
+              <div className="absolute top-4 left-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg p-2 text-center text-sm font-medium text-green-700 shadow-sm border border-green-100">
+                Scanning for nearby requests...
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Active Job Map and Controls */
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-orange-100 overflow-hidden">
+              <div className="h-[250px] relative">
+                {currentLocation && activeJob.user_lat ? (
+                  <GoogleMap
+                    mapContainerStyle={{ width: '100%', height: '100%' }}
+                    options={mapOptions}
+                    center={{ lat: currentLocation.lat, lng: currentLocation.lng }}
+                    zoom={13}
+                  >
+                    <Marker 
+                      position={{ lat: parseFloat(activeJob.user_lat), lng: parseFloat(activeJob.user_lng) }}
+                      icon={{
+                        path: window.google.maps.SymbolPath.CIRCLE,
+                        fillColor: '#007BFF', // User is blue
+                        fillOpacity: 1, strokeWeight: 3, strokeColor: '#FFFFFF', scale: 8
+                      }}
+                    />
+                    {directions && (
+                      <DirectionsRenderer 
+                        directions={directions}
+                        options={{ suppressMarkers: true, polylineOptions: { strokeColor: '#FF8A00', strokeWeight: 5 } }}
+                      />
+                    )}
+                  </GoogleMap>
+                ) : (
+                  <div className="h-full bg-gray-100 flex items-center justify-center">Loading map...</div>
+                )}
+
+                <button 
+                  onClick={openNavigation}
+                  className="absolute bottom-4 right-4 bg-white text-primary px-4 py-2 rounded-xl shadow-lg font-bold flex items-center gap-2 hover:bg-gray-50"
+                >
+                  <FiNavigation /> Navigate
+                </button>
+              </div>
+
+              <div className="p-5">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="font-bold text-xl text-gray-900">{activeJob.service_type || 'Roadside Assistance'}</h3>
+                    <p className="text-gray-500 flex items-center gap-1 mt-1">
+                      <FiMapPin size={14} /> {activeJob.user_address || 'Customer Location'}
+                    </p>
+                  </div>
+                  <div className="bg-orange-50 text-orange-700 font-bold px-3 py-1 rounded-lg">
+                    {activeJob.status.replace('_', ' ').toUpperCase()}
+                  </div>
+                </div>
+
+                {activeJob.description && (
+                  <div className="bg-gray-50 rounded-xl p-3 mb-4 text-sm text-gray-700">
+                    <strong>Issue:</strong> {activeJob.description}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  {activeJob.status === 'accepted' && (
+                    <button onClick={() => handleUpdateJobStatus('en_route')} className="col-span-2 bg-primary hover:bg-orange-600 text-white font-bold py-3 rounded-xl">
+                      I'm On My Way
+                    </button>
+                  )}
+                  {activeJob.status === 'en_route' && (
+                    <button onClick={() => handleUpdateJobStatus('arrived')} className="col-span-2 bg-primary hover:bg-orange-600 text-white font-bold py-3 rounded-xl">
+                      I've Arrived
+                    </button>
+                  )}
+                  {activeJob.status === 'arrived' && (
+                    <button onClick={() => handleUpdateJobStatus('in_progress')} className="col-span-2 bg-primary hover:bg-orange-600 text-white font-bold py-3 rounded-xl">
+                      Start Job
+                    </button>
+                  )}
+                  {activeJob.status === 'in_progress' && (
+                    <button onClick={() => handleUpdateJobStatus('completed')} className="col-span-2 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
+                      <FiCheck size={20} /> Complete Job
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* Incoming Request Modal */}
+      <AnimatePresence>
+        {incomingRequest && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}
+              className="bg-white w-full max-w-sm rounded-2xl overflow-hidden relative z-10 shadow-2xl"
+            >
+              <div className="bg-gradient-to-r from-orange-400 to-primary p-6 text-white text-center relative">
+                <div className="absolute top-4 right-4 w-10 h-10 border-4 border-white/30 border-t-white rounded-full flex items-center justify-center text-sm font-bold">
+                  {countdown}
+                </div>
+                <div className="w-16 h-16 bg-white text-primary rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg">
+                  <FiActivity size={32} className="animate-pulse" />
+                </div>
+                <h2 className="text-2xl font-bold">New Request!</h2>
+                <p className="opacity-90">{incomingRequest.distance || '?'} km away</p>
+              </div>
+
+              <div className="p-6">
+                <div className="mb-4">
+                  <div className="text-sm text-gray-500 uppercase font-bold tracking-wider mb-1">Service Needed</div>
+                  <div className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    {incomingRequest.serviceType}
+                  </div>
+                </div>
+                
+                <div className="mb-6">
+                  <div className="text-sm text-gray-500 uppercase font-bold tracking-wider mb-1">Location Area</div>
+                  <div className="text-gray-900 font-medium">{incomingRequest.userAddress || 'Nearby Area'}</div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={() => handleDeclineRequest(incomingRequest.requestId)}
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-xl flex items-center justify-center gap-2"
+                  >
+                    <FiX size={20} /> Decline
+                  </button>
+                  <button 
+                    onClick={() => handleAcceptRequest(incomingRequest.requestId)}
+                    className="bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-green-500/30"
+                  >
+                    <FiCheck size={20} /> Accept
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+    </PageTransition>
   );
 };
 

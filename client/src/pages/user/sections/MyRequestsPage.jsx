@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { FiClock, FiMapPin, FiTruck, FiTool } from 'react-icons/fi';
-import useRequestStore from '../../../store/requestStore';
+import { useSelector, useDispatch } from 'react-redux';
+import { fetchMyRequestsThunk } from '../../../store/requestStore';
 import Loader from '../../../components/common/Loader';
 
 const MyRequestsPage = () => {
-  const { requests, isLoading, fetchMyRequests } = useRequestStore();
+  const dispatch = useDispatch();
+  const { requests, isLoading } = useSelector(state => state.request);
+  const fetchMyRequests = () => dispatch(fetchMyRequestsThunk());
   const [filter, setFilter] = useState('All');
 
   useEffect(() => {

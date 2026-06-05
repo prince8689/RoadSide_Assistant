@@ -1,7 +1,10 @@
 {
-  "name": "roadside-assist-server",
+  "name": "roadside-assist-backend",
   "version": "1.0.0",
-  "description": "Roadside Vehicle Assistance & Mechanic Booking Platform — Backend API",
+  "description": "Roadside Vehicle Assistance Platform — Backend API",
+  "author": "Your Name",
+  "license": "UNLICENSED",
+  "private": true,
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
@@ -15,8 +18,6 @@
     "postgresql",
     "redis"
   ],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
@@ -29,6 +30,7 @@
     "joi": "^18.2.1",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
+    "node-fetch": "^3.3.2",
     "nodemailer": "^8.0.10",
     "pg": "^8.21.0",
     "socket.io": "^4.8.3",

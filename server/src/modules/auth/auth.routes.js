@@ -5,25 +5,30 @@
 // Base path: /api/auth
 //
 // Public routes:
-//   POST /api/auth/register  — Register new user/mechanic
-//   POST /api/auth/login     — Login with email + password
-//   POST /api/auth/refresh   — Refresh access token
+//   POST /api/auth/send-otp   — Send OTP for registration or login
+//   POST /api/auth/verify-otp — Verify OTP code
+//   POST /api/auth/register   — Register new user/mechanic
+//   POST /api/auth/login      — Login with email + password
+//   POST /api/auth/refresh    — Refresh access token
 //
 // Protected routes (requires Bearer token):
-//   GET  /api/auth/me        — Get current user profile
-//   POST /api/auth/logout    — Logout (revoke refresh token)
+//   GET  /api/auth/me         — Get current user profile
+//   POST /api/auth/logout     — Logout (revoke refresh token)
 
 const express = require('express');
 const router = express.Router();
 const authController = require('./auth.controller');
 const { authenticate } = require('../../middleware/auth');
 const validate = require('../../middleware/validate');
-const { registerSchema, sendOtpSchema, loginSchema, refreshTokenSchema } = require('./auth.validation');
+const { registerSchema, sendOtpSchema, verifyOtpSchema, loginSchema, refreshTokenSchema } = require('./auth.validation');
 
 // ---- Public Routes (no authentication required) ----
 
 // Send OTP — validates body with sendOtpSchema before hitting controller
 router.post('/send-otp', validate(sendOtpSchema), authController.sendOtp);
+
+// Verify OTP — validates body with verifyOtpSchema
+router.post('/verify-otp', validate(verifyOtpSchema), authController.verifyOtp);
 
 // Register — validates body with registerSchema before hitting controller
 router.post('/register', validate(registerSchema), authController.register);

@@ -7,6 +7,8 @@
 // one per query — critical for production performance.
 
 const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
 
 // Create connection pool from environment variables
 const pool = new Pool({
@@ -75,8 +77,58 @@ const query = async (text, params) => {
   return result;
 };
 
+/**
+ * Run all SQL migration files from the migrations directory.
+ * Reads all .sql files in server/src/config/migrations/ and executes them.
+ * Safe to run multiple times — uses IF NOT EXISTS patterns.
+ *
+ * @returns {Promise<void>}
+ */
+const runMigrations = async () => {
+  const migrationsDir = path.join(__dirname, 'migrations');
+
+  // Check if migrations directory exists
+  if (!fs.existsSync(migrationsDir)) {
+    console.log('ℹ️  No migrations directory found, skipping migrations.');
+    return;
+  }
+
+  // Read all .sql files from the directory
+  const files = fs.readdirSync(migrationsDir)
+    .filter((file) => file.endsWith('.sql'))
+    .sort(); // Sort alphabetically to run in order
+
+  if (files.length === 0) {
+    console.log('ℹ️  No migration files found.');
+    return;
+  }
+
+  console.log(`\n🔄 Running ${files.length} migration(s)...`);
+
+  for (const file of files) {
+    const filePath = path.join(migrationsDir, file);
+    try {
+      const sql = fs.readFileSync(filePath, 'utf-8');
+      await pool.query(sql);
+      console.log(`   ✅ ${file}`);
+    } catch (error) {
+      // Don't crash on migration errors — log and continue
+      // Migrations use IF NOT EXISTS so duplicates are safe
+      if (error.code === '42P07') {
+        // 42P07 = relation already exists — this is fine
+        console.log(`   ✅ ${file} (already applied)`);
+      } else {
+        console.error(`   ⚠️  ${file}: ${error.message}`);
+      }
+    }
+  }
+
+  console.log('✅ Migrations complete.\n');
+};
+
 module.exports = {
   pool,
   connectDB,
   query,
+  runMigrations,
 };

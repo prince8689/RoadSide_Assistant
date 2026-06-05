@@ -8,18 +8,90 @@
 
 const authService = require('./auth.service');
 const { success } = require('../../utils/apiResponse');
+const { query } = require('../../config/db');
+const { AppError } = require('../../middleware/errorHandler');
 
 /**
  * POST /api/auth/send-otp
- * Send OTP for registration to verify email.
+ * Send OTP for registration or login to verify email.
  *
- * Body: { full_name, email, phone }
- * Returns: 200 + success message
+ * Body: { email, purpose } or { full_name, email, phone } (legacy)
+ * purpose: "register" | "login"
+ *
+ * For "register": checks email is NOT already registered
+ * For "login": checks email IS already registered
+ *
+ * Returns: 200 + { success: true, message: "OTP sent to your email" }
  */
 const sendOtp = async (req, res, next) => {
   try {
-    const result = await authService.sendRegistrationOtp(req.body);
-    return success(res, null, result.message, 200);
+    const { email, purpose, full_name, phone } = req.body;
+
+    if (!email) {
+      throw new AppError('Email is required', 400);
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new AppError('Please provide a valid email address', 400);
+    }
+
+    const otpPurpose = purpose || 'register';
+
+    if (otpPurpose === 'register') {
+      // For registration: check email is NOT already registered
+      const emailCheck = await query('SELECT id FROM users WHERE email = $1', [email]);
+      if (emailCheck.rows.length > 0) {
+        throw new AppError('Email is already registered', 409);
+      }
+
+      // Also check phone if provided
+      if (phone) {
+        const phoneCheck = await query('SELECT id FROM users WHERE phone = $1', [phone]);
+        if (phoneCheck.rows.length > 0) {
+          throw new AppError('Phone number is already registered', 409);
+        }
+      }
+    } else if (otpPurpose === 'login') {
+      // For login: check email EXISTS in database
+      const emailCheck = await query('SELECT id, full_name FROM users WHERE email = $1', [email]);
+      if (emailCheck.rows.length === 0) {
+        throw new AppError('No account found with this email', 404);
+      }
+    }
+
+    // Generate and send OTP
+    const result = await authService.generateAndSendOTP(email, full_name, otpPurpose);
+
+    return success(res, null, result.message || 'OTP sent to your email', 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/verify-otp
+ * Verify an OTP code.
+ *
+ * Body: { email, otp, purpose }
+ * Returns: 200 + { success: true, message: "OTP verified" }
+ */
+const verifyOtp = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      throw new AppError('Email and OTP are required', 400);
+    }
+
+    if (otp.length !== 6 || !/^\d+$/.test(otp)) {
+      throw new AppError('OTP must be exactly 6 digits', 400);
+    }
+
+    await authService.verifyOTP(email, otp);
+
+    return success(res, null, 'OTP verified successfully', 200);
   } catch (error) {
     next(error);
   }
@@ -57,6 +129,11 @@ const register = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      throw new AppError('Email and password are required', 400);
+    }
+
     const result = await authService.loginUser(email, password);
 
     return success(res, {
@@ -126,6 +203,7 @@ const refreshToken = async (req, res, next) => {
 
 module.exports = {
   sendOtp,
+  verifyOtp,
   register,
   login,
   getMe,

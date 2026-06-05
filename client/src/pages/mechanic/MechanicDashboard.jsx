@@ -3,7 +3,8 @@ import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom'
 import { FiHome, FiTool, FiList, FiSettings, FiLogOut, FiMenu, FiX, FiCheckCircle, FiDollarSign, FiStar } from 'react-icons/fi';
 import { MdDirectionsCar } from 'react-icons/md';
 import { motion, AnimatePresence } from 'framer-motion';
-import useAuthStore from '../../store/authStore';
+import { useSelector, useDispatch } from 'react-redux';
+import { logoutThunk } from '../../store/authStore';
 import useMechanicStore from '../../store/mechanicStore';
 import useSocket from '../../hooks/useSocket';
 import NotificationBell from '../../components/common/NotificationBell';
@@ -18,7 +19,9 @@ import ReviewsPage from './sections/ReviewsPage';
 import MechanicProfilePage from './sections/MechanicProfilePage';
 
 const MechanicDashboard = () => {
-  const { user, logout } = useAuthStore();
+  const { user } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
+  const logout = () => dispatch(logoutThunk());
   const { profile, isAvailable, toggleAvailability, fetchProfile, isLoading } = useMechanicStore();
   const location = useLocation();
   const navigate = useNavigate();

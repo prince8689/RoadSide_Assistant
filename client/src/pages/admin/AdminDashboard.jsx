@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
 import { FiHome, FiUsers, FiTool, FiList, FiFolder, FiPieChart, FiSettings, FiLogOut, FiBell, FiMenu, FiX } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
-import useAuthStore from '../../store/authStore';
+import { useSelector, useDispatch } from 'react-redux';
+import { logoutThunk } from '../../store/authStore';
 import useAdminStore from '../../store/adminStore';
 import useSocket from '../../hooks/useSocket';
 import NotificationBell from '../../components/common/NotificationBell';
@@ -17,7 +18,9 @@ import CategoriesPage from './sections/CategoriesPage';
 import ReportsPage from './sections/ReportsPage';
 
 const AdminDashboard = () => {
-  const { user, logout } = useAuthStore();
+  const { user } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
+  const logout = () => dispatch(logoutThunk());
   const { stats, fetchStats } = useAdminStore();
   const location = useLocation();
   const navigate = useNavigate();
