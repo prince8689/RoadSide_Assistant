@@ -125,6 +125,8 @@ app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
 // HEALTH CHECK ENDPOINT
 // ============================================
 
+app.get('/', (req, res) => res.status(200).send('API is running'));
+
 app.get('/api/health', async (req, res) => {
   try {
     // Check PostgreSQL connection
