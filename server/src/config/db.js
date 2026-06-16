@@ -17,6 +17,7 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'roadside_db',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || '',
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   // Pool configuration
   max: 20,                   // Maximum number of connections in the pool
   idleTimeoutMillis: 30000,  // Close idle connections after 30 seconds
