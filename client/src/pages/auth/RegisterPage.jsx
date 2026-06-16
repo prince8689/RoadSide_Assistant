@@ -7,6 +7,7 @@ import { FaTools } from 'react-icons/fa';
 import { useDispatch, useSelector } from 'react-redux';
 import { sendOTPThunk, verifyOTPThunk, registerThunk, clearError, resetOtpState } from '../../store/authStore';
 import { motion, AnimatePresence } from 'framer-motion';
+import TermsModal from '../../components/common/TermsModal';
 
 const RegisterPage = () => {
   const [step, setStep] = useState(1);
@@ -18,6 +19,7 @@ const RegisterPage = () => {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [showPassword, setShowPassword] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const [timer, setTimer] = useState(30);
 
   const dispatch = useDispatch();
@@ -112,10 +114,21 @@ const RegisterPage = () => {
     if (e) e.preventDefault();
     const otpValue = otp.join('');
     
-    const result = await dispatch(registerThunk({
+    let expYears = 0;
+    if (form.experience_years === '1-2') expYears = 1;
+    else if (form.experience_years === '3-5') expYears = 3;
+    else if (form.experience_years === '5-10') expYears = 5;
+    else if (form.experience_years === '10+') expYears = 10;
+    else expYears = parseInt(form.experience_years) || 0;
+
+    const payload = {
       ...form,
-      otp: otpValue
-    }));
+      otp: otpValue,
+      experience_years: expYears,
+      documents: [{ type: 'aadhar', number: form.aadhar_number, verified: false }]
+    };
+
+    const result = await dispatch(registerThunk(payload));
 
     if (registerThunk.fulfilled.match(result)) {
       toast.success('Registration successful!');
@@ -156,7 +169,7 @@ const RegisterPage = () => {
             
             {/* STEP 1: ROLE SELECTION */}
             {step === 1 && (
-              <motion.div key="step1" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="absolute inset-0 p-8 flex flex-col justify-center">
+              <motion.div key="step1" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col justify-center">
                 <div className="text-center mb-8">
                   <span className="text-4xl">👋</span>
                   <h2 className="text-2xl font-bold text-dark mt-2">Welcome to RoadAssist</h2>
@@ -195,7 +208,7 @@ const RegisterPage = () => {
 
             {/* STEP 2: BASIC INFO */}
             {step === 2 && (
-              <motion.div key="step2" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="absolute inset-0 p-8 flex flex-col justify-center">
+              <motion.div key="step2" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col justify-center">
                 <button type="button" onClick={() => setStep(1)} className="absolute top-6 left-6 text-gray-400 hover:text-primary flex items-center gap-1 text-sm font-medium"><FiArrowLeft/> Back</button>
                 <h2 className="text-2xl font-bold text-dark mb-2 mt-4">Basic Information</h2>
                 <p className="text-muted mb-6">Tell us a bit about yourself</p>
@@ -222,7 +235,7 @@ const RegisterPage = () => {
 
             {/* STEP 3: OTP VERIFICATION */}
             {step === 3 && (
-              <motion.div key="step3" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="absolute inset-0 p-8 flex flex-col items-center justify-center">
+              <motion.div key="step3" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col items-center justify-center">
                 <button type="button" onClick={() => setStep(2)} className="absolute top-6 left-6 text-gray-400 hover:text-primary flex items-center gap-1 text-sm font-medium"><FiArrowLeft/> Back</button>
                 <div className="w-16 h-16 bg-orange-100 text-primary rounded-full flex items-center justify-center mb-4">
                   <FiMail className="text-3xl" />
@@ -248,7 +261,7 @@ const RegisterPage = () => {
 
             {/* STEP 4: PASSWORD SETUP */}
             {step === 4 && (
-              <motion.div key="step4" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="absolute inset-0 p-8 flex flex-col justify-center">
+              <motion.div key="step4" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col justify-center">
                 <button type="button" onClick={() => setStep(3)} className="absolute top-6 left-6 text-gray-400 hover:text-primary flex items-center gap-1 text-sm font-medium"><FiArrowLeft/> Back</button>
                 <div className="inline-flex items-center gap-2 mb-2 mt-4 text-green-500 font-semibold"><FiCheckCircle /> Email Verified</div>
                 <h2 className="text-2xl font-bold text-dark mb-6">Secure your account</h2>
@@ -275,7 +288,7 @@ const RegisterPage = () => {
 
                   <div className="flex items-center gap-2 mt-2">
                     <input type="checkbox" id="terms" checked={agreed} onChange={e => setAgreed(e.target.checked)} className="w-4 h-4 text-primary rounded focus:ring-primary" />
-                    <label htmlFor="terms" className="text-sm text-gray-600">I agree to the <a href="#" className="text-primary hover:underline">Terms & Conditions</a></label>
+                    <label htmlFor="terms" className="text-sm text-gray-600">I agree to the <button type="button" onClick={() => setShowTerms(true)} className="text-primary hover:underline">Terms & Conditions</button></label>
                   </div>
 
                   <button type="submit" disabled={isLoading} className="btn-primary w-full mt-6 h-12 flex justify-center items-center">
@@ -287,7 +300,7 @@ const RegisterPage = () => {
 
             {/* STEP 5: MECHANIC DETAILS (Only for Mechanics) */}
             {step === 5 && form.role === 'mechanic' && (
-              <motion.div key="step5" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="absolute inset-0 p-8 flex flex-col justify-center overflow-y-auto">
+              <motion.div key="step5" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col justify-center overflow-y-auto">
                 <button type="button" onClick={() => setStep(4)} className="absolute top-6 left-6 text-gray-400 hover:text-primary flex items-center gap-1 text-sm font-medium"><FiArrowLeft/> Back</button>
                 <h2 className="text-2xl font-bold text-dark mb-2 mt-6">Professional Profile</h2>
                 <p className="text-muted mb-6">Complete your mechanic details</p>
@@ -335,6 +348,8 @@ const RegisterPage = () => {
           </AnimatePresence>
         </div>
       </div>
+
+      <TermsModal isOpen={showTerms} onClose={() => setShowTerms(false)} />
     </div>
   );
 };

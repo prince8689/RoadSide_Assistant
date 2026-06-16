@@ -72,7 +72,8 @@ api.interceptors.response.use(
 
     // Handle 500 Server Error
     if (error.response.status >= 500) {
-      toast.error('Server error, please try again');
+      const errorMessage = error.response.data?.message || 'Server error, please try again';
+      toast.error(errorMessage);
     }
 
     return Promise.reject(error);

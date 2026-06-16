@@ -12,6 +12,7 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
+const path = require('path');
 const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 
@@ -41,8 +42,10 @@ const adminRoutes = require('./modules/admin/admin.routes');
 const reviewRoutes = require('./modules/reviews/review.routes');
 const historyRoutes = require('./modules/history/history.routes');
 const notificationRoutes = require('./modules/notifications/notification.routes');
-const searchRoutes = require('./modules/search/search.routes');
 const trackingRoutes = require('./modules/tracking/tracking.routes');
+const aiRoutes = require('./modules/ai/ai.routes');
+const complaintRoutes = require('./modules/complaints/complaint.routes');
+const billingRoutes = require('./modules/billing/billing.routes');
 
 // Import auto cleanup job
 const { startCleanupJob } = require('./utils/locationCleanup');
@@ -110,6 +113,9 @@ if (process.env.NODE_ENV !== 'production') {
 // 4. Body Parsers — Parse incoming JSON and URL-encoded request bodies
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// 4.5. Serve Static Files
+app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
 
 // 5. Input Sanitization
 // Removed mongoSanitize and xss-clean as they cause "Cannot set property query" in this Node/Express environment
@@ -199,6 +205,9 @@ app.use('/api/reviews', generalLimiter, reviewRoutes);
 app.use('/api/history', generalLimiter, historyRoutes);
 app.use('/api/notifications', generalLimiter, notificationRoutes);
 app.use('/api/tracking', generalLimiter, trackingRoutes);
+app.use('/api/ai', generalLimiter, aiRoutes);
+app.use('/api/complaints', generalLimiter, complaintRoutes);
+app.use('/api/billing', generalLimiter, billingRoutes);
 
 // ============================================
 // ERROR HANDLING
@@ -225,21 +234,49 @@ const startServer = async () => {
     // 2. Connect to Redis
     await connectRedis();
 
-    // 3. Start HTTP server (which runs both Express and Socket.io)
+    // 3. Setup Error Handling for Server
+    server.on('error', (e) => {
+      if (e.code === 'EADDRINUSE') {
+        logger.error(`❌ CRITICAL: Port ${PORT} is already in use!`);
+        logger.error(`   This means another instance of the backend is already running.`);
+        logger.error(`   Please kill the duplicate process or change the PORT in .env.`);
+        logger.error(`   To fix on Windows: Stop-Process -Id (Get-NetTCPConnection -LocalPort ${PORT}).OwningProcess -Force`);
+        process.exit(1);
+      } else {
+        logger.error('❌ Server startup error:', e);
+        process.exit(1);
+      }
+    });
+
+    // 4. Start HTTP server (which runs both Express and Socket.io)
     server.listen(PORT, () => {
+      const geminiStatus = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here' 
+        ? '✅ Loaded' 
+        : '⚠️ Missing/Placeholder';
+
       logger.info('══════════════════════════════════════════');
       logger.info('🚗  ROADSIDE ASSIST API SERVER');
       logger.info('══════════════════════════════════════════');
-      logger.info(`Server running on port ${PORT}`);
-      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-      logger.info(`API Base: http://localhost:${PORT}/api`);
-      logger.info(`Health Check: http://localhost:${PORT}/api/health`);
-      logger.info(`Sockets: Enabled & Listening`);
+      logger.info(`⚙️  Server Port:      ${PORT}`);
+      logger.info(`🌍 Environment:      ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`📦 Database Status:  ✅ Connected`);
+      logger.info(`⚡ Redis Status:     ✅ Connected`);
+      logger.info(`🔌 Socket Status:    ✅ Enabled & Listening`);
+      logger.info(`🤖 Gemini API Key:   ${geminiStatus}`);
       logger.info('══════════════════════════════════════════');
+      logger.info(`📍 API Base: http://localhost:${PORT}/api`);
+      logger.info(`🩺 Health Check: http://localhost:${PORT}/api/health`);
+      
+      if (geminiStatus.includes('Missing')) {
+          logger.warn('\n⚠️ WARNING: GEMINI_API_KEY is not set correctly in .env.');
+          logger.warn('⚠️ The AI Chatbot will not be able to answer user requests.\n');
+      }
     });
 
-    // 4. Start Background Jobs
+    // 5. Start Background Jobs
     startCleanupJob();
+    const { startRequestCleanupJob } = require('./utils/requestCleanup');
+    startRequestCleanupJob();
     const { getIO } = require('./socket/socket');
     const { startAdminDashboardBroadcast } = require('./socket/adminDashboard');
     startAdminDashboardBroadcast(getIO());
@@ -252,3 +289,4 @@ const startServer = async () => {
 startServer();
 
 module.exports = app;
+

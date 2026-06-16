@@ -20,7 +20,7 @@ const router = express.Router();
 const authController = require('./auth.controller');
 const { authenticate } = require('../../middleware/auth');
 const validate = require('../../middleware/validate');
-const { registerSchema, sendOtpSchema, verifyOtpSchema, loginSchema, refreshTokenSchema } = require('./auth.validation');
+const { registerSchema, sendOtpSchema, verifyOtpSchema, loginSchema, resetPasswordSchema, refreshTokenSchema, changePasswordSchema } = require('./auth.validation');
 
 // ---- Public Routes (no authentication required) ----
 
@@ -39,6 +39,9 @@ router.post('/login', validate(loginSchema), authController.login);
 // Refresh Token — validates body with refreshTokenSchema
 router.post('/refresh', validate(refreshTokenSchema), authController.refreshToken);
 
+// Reset Password — validates body with resetPasswordSchema
+router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
+
 // ---- Protected Routes (JWT required) ----
 
 // Get current user — requires valid access token
@@ -46,5 +49,8 @@ router.get('/me', authenticate, authController.getMe);
 
 // Logout — requires valid access token, revokes refresh token in Redis
 router.post('/logout', authenticate, authController.logout);
+
+// Change Password - requires valid access token
+router.patch('/change-password', authenticate, validate(changePasswordSchema), authController.changePassword);
 
 module.exports = router;

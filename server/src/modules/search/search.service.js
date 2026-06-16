@@ -16,20 +16,8 @@ const { AppError } = require('../../middleware/errorHandler');
 const findNearbyMechanics = async (userLat, userLng, radiusKm = 10, filters = {}) => {
   const { serviceType, minRating, maxDistance } = filters;
   const radius = maxDistance || radiusKm;
-  
-  // Cache key based on coordinates rounded to 1 decimal place (~11km grids) and filters
-  const cacheKey = `nearby:${parseFloat(userLat).toFixed(1)}:${parseFloat(userLng).toFixed(1)}:${radius}:${serviceType || 'all'}:${minRating || 0}`;
-  
-  try {
-    const cachedData = await redisClient.get(cacheKey);
-    if (cachedData) {
-      return JSON.parse(cachedData);
-    }
-  } catch (err) {
-    logger.warn('Redis cache get error in findNearbyMechanics:', err.message);
-  }
 
-  // Use the PostgreSQL function we created in the migration
+  // Always query fresh data — mechanic availability changes frequently
   const dbResult = await query(
     `SELECT * FROM find_nearby_mechanics($1, $2, $3)`,
     [userLat, userLng, radius]
@@ -47,21 +35,13 @@ const findNearbyMechanics = async (userLat, userLng, radiusKm = 10, filters = {}
 
   // Add calculated fields
   mechanics = mechanics.map(m => {
-    const distanceKm = parseFloat(m.distance_km);
+    const distanceKm = parseFloat(m.distance_km) || 0;
     return {
       ...m,
       distanceText: `${distanceKm.toFixed(1)} km away`,
-      // Assuming average city speed of 30 km/h -> 1 km = 2 mins
-      estimatedArrival: `${Math.ceil((distanceKm / 30) * 60)} minutes`,
+      estimatedArrival: `${Math.max(1, Math.ceil((distanceKm / 30) * 60))} minutes`,
     };
   });
-
-  try {
-    // Cache for 2 minutes (120 seconds)
-    await redisClient.set(cacheKey, JSON.stringify(mechanics), 'EX', 120);
-  } catch (err) {
-    logger.warn('Redis cache set error in findNearbyMechanics:', err.message);
-  }
 
   return mechanics;
 };
@@ -112,6 +92,10 @@ const updateMechanicLocation = async (mechanicId, lat, lng, accuracy) => {
  * @returns {Promise<Object>} Mechanic profile details
  */
 const getMechanicById = async (mechanicId) => {
+  // Check if mechanicId is UUID
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mechanicId);
+  const whereClause = isUUID ? 'm.user_id = $1' : 'm.id = $1';
+
   const result = await query(
     `SELECT 
       m.id as mechanic_id,
@@ -122,13 +106,13 @@ const getMechanicById = async (mechanicId) => {
       m.longitude,
       m.is_available,
       m.is_verified,
-      m.average_rating,
-      m.total_reviews,
+      m.rating as average_rating,
+      m.total_jobs as total_reviews,
       m.specializations,
       m.experience_years
      FROM mechanic_profiles m
      JOIN users u ON m.user_id = u.id
-     WHERE m.id = $1`,
+     WHERE ${whereClause}`,
     [mechanicId]
   );
 

@@ -14,6 +14,9 @@ const StatsCard = ({ icon: Icon, title, value, color, trend }) => {
     purple: 'bg-purple-100 text-purple-600'
   };
 
+  console.log('Icon:', typeof Icon, Icon);
+  console.log('CountUp:', typeof CountUp, CountUp);
+
   return (
     <motion.div
       variants={slideUp}
@@ -27,7 +30,7 @@ const StatsCard = ({ icon: Icon, title, value, color, trend }) => {
         <p className="text-sm font-semibold text-gray-500 mb-1">{title}</p>
         <p className="text-3xl font-bold text-dark mt-1 flex items-center">
           {isCurrency && <span className="mr-1">₹</span>}
-          <CountUp end={numValue} duration={1.5} separator="," />
+          {numValue}
         </p>
         {trend !== undefined && (
           <p className={`text-xs mt-2 flex items-center gap-1 font-medium ${trend > 0 ? 'text-green-500' : 'text-red-500'}`}>

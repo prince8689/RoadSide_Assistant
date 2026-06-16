@@ -156,9 +156,28 @@ const updateCategorySchema = Joi.object({
   'object.min': 'At least one field is required to update',
 });
 
+// ============================================
+// UPDATE ADMIN SETTINGS SCHEMA
+// PATCH /api/admin/settings
+// ============================================
+const updateAdminSettingsSchema = Joi.object({
+  platform_fee_value: Joi.number().min(0).messages({
+    'number.base': 'Platform fee must be a number',
+    'number.min': 'Platform fee cannot be negative',
+  }),
+  tax_percentage: Joi.number().min(0).max(100).messages({
+    'number.base': 'Tax percentage must be a number',
+    'number.min': 'Tax percentage cannot be negative',
+    'number.max': 'Tax percentage cannot exceed 100',
+  }),
+}).min(1).messages({
+  'object.min': 'At least one setting must be provided',
+});
+
 module.exports = {
   verifyMechanicSchema,
   updateUserStatusSchema,
   createCategorySchema,
   updateCategorySchema,
+  updateAdminSettingsSchema,
 };

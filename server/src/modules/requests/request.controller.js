@@ -149,13 +149,27 @@ const getAvailableRequests = async (req, res, next) => {
  */
 const getActiveRequest = async (req, res, next) => {
   try {
-    const request = await requestService.getActiveRequest(req.user.id, req.user.role);
+    const requests = await requestService.getActiveRequest(req.user.id, req.user.role);
 
     return success(
       res,
-      { request },
-      request ? 'Active request found' : 'No active request'
+      { requests },
+      requests.length > 0 ? 'Active requests found' : 'No active requests'
     );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// UPDATE LOCATION
+// ============================================
+
+const updateLocation = async (req, res, next) => {
+  try {
+    const { lat, lng } = req.body;
+    const request = await requestService.updateLocation(req.params.id, lat, lng, req.user.id);
+    return success(res, { request }, 'Location updated successfully');
   } catch (error) {
     next(error);
   }
@@ -254,15 +268,64 @@ const getTimeline = async (req, res, next) => {
   }
 };
 
+const submitFeedback = async (req, res, next) => {
+  try {
+    const { feedback } = req.body;
+    await requestService.submitFeedback(req.params.id, req.user.id, feedback);
+    return success(res, null, 'Feedback submitted successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+const submitPayment = async (req, res, next) => {
+  try {
+    const { payment_method } = req.body;
+    const request = await requestService.submitPayment(
+      req.params.id,
+      req.user.id,
+      payment_method,
+      req.file
+    );
+    return success(res, { request }, 'Payment submitted successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+const verifyPayment = async (req, res, next) => {
+  try {
+    const request = await requestService.verifyPayment(req.params.id, req.user.id);
+    return success(res, { request }, 'Payment verified and job completed');
+  } catch (error) {
+    next(error);
+  }
+};
+
+const rejectPayment = async (req, res, next) => {
+  try {
+    const request = await requestService.rejectPayment(req.params.id, req.user.id);
+    return success(res, { request }, 'Payment rejected successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
+  submitPayment,
+  verifyPayment,
+  rejectPayment,
   createRequest,
   getMyRequests,
   getRequestById,
   cancelRequest,
   getAvailableRequests,
   getActiveRequest,
+  updateLocation,
   acceptRequest,
   updateStatus,
   rejectRequest,
   getTimeline,
+  submitFeedback,
 };

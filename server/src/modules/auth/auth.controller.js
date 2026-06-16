@@ -53,8 +53,8 @@ const sendOtp = async (req, res, next) => {
           throw new AppError('Phone number is already registered', 409);
         }
       }
-    } else if (otpPurpose === 'login') {
-      // For login: check email EXISTS in database
+    } else if (otpPurpose === 'login' || otpPurpose === 'forgot-password') {
+      // For login / forgot password: check email EXISTS in database
       const emailCheck = await query('SELECT id, full_name FROM users WHERE email = $1', [email]);
       if (emailCheck.rows.length === 0) {
         throw new AppError('No account found with this email', 404);
@@ -89,7 +89,7 @@ const verifyOtp = async (req, res, next) => {
       throw new AppError('OTP must be exactly 6 digits', 400);
     }
 
-    await authService.verifyOTP(email, otp);
+    await authService.verifyOTP(email, otp, false);
 
     return success(res, null, 'OTP verified successfully', 200);
   } catch (error) {
@@ -141,6 +141,29 @@ const login = async (req, res, next) => {
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
     }, 'Login successful');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/auth/reset-password
+ * Reset password using OTP
+ *
+ * Body: { email, otp, new_password }
+ * Returns: 200 + { success: true, message: "Password reset successful" }
+ */
+const resetPassword = async (req, res, next) => {
+  try {
+    const { email, otp, new_password } = req.body;
+
+    if (!email || !otp || !new_password) {
+      throw new AppError('Email, OTP, and new password are required', 400);
+    }
+
+    await authService.resetPasswordUser(email, otp, new_password);
+
+    return success(res, null, 'Password reset successfully');
   } catch (error) {
     next(error);
   }
@@ -201,6 +224,23 @@ const refreshToken = async (req, res, next) => {
   }
 };
 
+/**
+ * PATCH /api/auth/change-password
+ * Change current user password
+ *
+ * Body: { currentPassword, newPassword }
+ * Returns: 200 + { success: true, message: "Password updated successfully" }
+ */
+const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    await authService.changePasswordUser(req.user.id, currentPassword, newPassword);
+    return success(res, null, 'Password updated successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOtp,
   verifyOtp,
@@ -209,4 +249,6 @@ module.exports = {
   getMe,
   logout,
   refreshToken,
+  resetPassword,
+  changePassword,
 };

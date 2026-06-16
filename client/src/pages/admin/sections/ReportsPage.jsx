@@ -12,8 +12,8 @@ const ReportsPage = () => {
   useEffect(() => {
     Promise.all([getRequestsReport(), getMechanicPerformance()])
       .then(([r1, r2]) => {
-        setReqData(r1.data.data || []);
-        setMechData(r2.data.data || []);
+        setReqData(r1.data?.requests || r1.data || []);
+        setMechData(r2.data?.mechanics || r2.data || []);
       })
       .finally(() => setLoading(false));
   }, []);

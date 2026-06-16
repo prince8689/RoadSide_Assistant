@@ -18,8 +18,8 @@ const passwordMessage =
   'Password must be at least 8 characters with 1 uppercase, 1 lowercase, 1 number, and 1 special character (@$!%*?&)';
 
 // ---- Custom phone pattern (10 digits) ----
-const phonePattern = /^[6-9]\d{9}$/;
-const phoneMessage = 'Phone must be a valid 10-digit Indian mobile number starting with 6-9';
+const phonePattern = /^(?:\+91[- ]?)?[6-9]\d{9}$/;
+const phoneMessage = 'Phone must be a valid 10-digit Indian mobile number (optional +91)';
 
 // ============================================
 // REGISTER SCHEMA
@@ -85,7 +85,16 @@ const registerSchema = Joi.object({
       'string.empty': 'OTP is required',
       'any.required': 'OTP is required',
     }),
-});
+
+  // Optional mechanic fields
+  business_name: Joi.string().trim().max(150).optional(),
+  experience_years: Joi.any().optional(), // allow strings or numbers
+  specializations: Joi.array().items(Joi.string()).optional(),
+  documents: Joi.any().optional(),
+  service_radius: Joi.any().optional(),
+  aadhar_number: Joi.any().optional(),
+  confirm_password: Joi.string().optional(),
+}).unknown(true);
 
 // ============================================
 // SEND OTP SCHEMA
@@ -104,10 +113,10 @@ const sendOtpSchema = Joi.object({
     }),
 
   purpose: Joi.string()
-    .valid('register', 'login')
+    .valid('register', 'login', 'forgot-password')
     .default('register')
     .messages({
-      'any.only': 'Purpose must be either register or login',
+      'any.only': 'Purpose must be either register, login, or forgot-password',
     }),
 
   // Optional fields — needed when purpose is "register"
@@ -158,11 +167,11 @@ const verifyOtpSchema = Joi.object({
     }),
 
   purpose: Joi.string()
-    .valid('register', 'login')
+    .valid('register', 'login', 'forgot-password')
     .default('register')
     .optional()
     .messages({
-      'any.only': 'Purpose must be either register or login',
+      'any.only': 'Purpose must be either register, login, or forgot-password',
     }),
 });
 
@@ -191,6 +200,43 @@ const loginSchema = Joi.object({
 });
 
 // ============================================
+// RESET PASSWORD SCHEMA
+// POST /api/auth/reset-password
+// ============================================
+const resetPasswordSchema = Joi.object({
+  email: Joi.string()
+    .trim()
+    .lowercase()
+    .email()
+    .required()
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'string.empty': 'Email is required',
+      'any.required': 'Email is required',
+    }),
+
+  otp: Joi.string()
+    .length(6)
+    .pattern(/^[0-9]+$/)
+    .required()
+    .messages({
+      'string.length': 'OTP must be exactly 6 digits',
+      'string.pattern.base': 'OTP must only contain numbers',
+      'string.empty': 'OTP is required',
+      'any.required': 'OTP is required',
+    }),
+
+  new_password: Joi.string()
+    .pattern(passwordPattern)
+    .required()
+    .messages({
+      'string.pattern.base': passwordMessage,
+      'string.empty': 'New password is required',
+      'any.required': 'New password is required',
+    }),
+});
+
+// ============================================
 // REFRESH TOKEN SCHEMA
 // POST /api/auth/refresh
 // ============================================
@@ -203,10 +249,28 @@ const refreshTokenSchema = Joi.object({
     }),
 });
 
+// ============================================
+// CHANGE PASSWORD SCHEMA
+// PATCH /api/auth/change-password
+// ============================================
+const changePasswordSchema = Joi.object({
+  currentPassword: Joi.string().required().messages({
+    'string.empty': 'Current password is required',
+    'any.required': 'Current password is required',
+  }),
+  newPassword: Joi.string().pattern(passwordPattern).required().messages({
+    'string.pattern.base': passwordMessage,
+    'string.empty': 'New password is required',
+    'any.required': 'New password is required',
+  }),
+});
+
 module.exports = {
   registerSchema,
   sendOtpSchema,
   verifyOtpSchema,
   loginSchema,
+  resetPasswordSchema,
   refreshTokenSchema,
+  changePasswordSchema,
 };

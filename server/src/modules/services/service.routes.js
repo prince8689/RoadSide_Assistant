@@ -61,4 +61,33 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+// ============================================
+// CREATE CUSTOM SERVICE CATEGORY
+// POST /api/services
+// ============================================
+router.post('/', async (req, res, next) => {
+  try {
+    const { name, base_price, icon } = req.body;
+    
+    if (!name) {
+      throw new AppError('Service name is required', 400);
+    }
+
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+    const defaultIcon = icon || 'MdOutlineMiscellaneousServices';
+    const defaultPrice = base_price || 0;
+
+    const result = await query(
+      `INSERT INTO service_categories (name, slug, icon, base_price, is_active)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING id, name, slug, icon, base_price`,
+      [name, slug, defaultIcon, defaultPrice]
+    );
+
+    return success(res, { category: result.rows[0] }, 'Custom service created successfully', 201);
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

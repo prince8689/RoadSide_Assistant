@@ -14,15 +14,18 @@ const iconMap = {
 };
 
 export default function MechanicDetailModal({ mechanic, isOpen, onClose, onRequestHelp }) {
+  const [selectedCategoryId, setSelectedCategoryId] = React.useState(null);
+
   // Prevent body scroll when open
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
+      setSelectedCategoryId(null); // reset selection when opened
     } else {
       document.body.style.overflow = 'unset';
     }
     return () => { document.body.style.overflow = 'unset'; };
-  }, [isOpen]);
+  }, [isOpen, mechanic]);
 
   if (!isOpen || !mechanic) return null;
 
@@ -143,15 +146,34 @@ export default function MechanicDetailModal({ mechanic, isOpen, onClose, onReque
 
             {/* Section 3: Services Offered */}
             <div className="mb-6">
-              <h3 className="font-bold text-gray-900 mb-3 text-lg">Services Offered</h3>
-              <div className="flex flex-wrap gap-2">
-                {specs.length > 0 ? specs.map((spec, index) => (
-                  <div key={index} className="flex items-center gap-2 bg-gray-50 border border-gray-100 px-3 py-2 rounded-lg text-sm text-gray-700">
-                    <span className="text-lg">{iconMap[spec] || '🛠️'}</span>
-                    {spec}
-                  </div>
-                )) : (
-                  <div className="text-gray-500 italic text-sm">General Mechanic</div>
+              <h3 className="font-bold text-gray-900 mb-3 text-lg flex items-center gap-2">
+                Services Offered
+                <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">Select one to continue</span>
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {mechanic.pricing && Object.values(mechanic.pricing).length > 0 ? (
+                  Object.values(mechanic.pricing).map((service) => {
+                    if (!service.is_enabled) return null;
+                    const isSelected = selectedCategoryId === service.category_id;
+                    return (
+                      <button 
+                        key={service.category_id}
+                        onClick={() => setSelectedCategoryId(service.category_id)}
+                        className={`flex flex-col text-left gap-1 border p-3 rounded-xl transition-all ${
+                          isSelected 
+                            ? 'bg-orange-50 border-primary ring-1 ring-primary shadow-sm' 
+                            : 'bg-gray-50 border-gray-100 hover:border-orange-200'
+                        }`}
+                      >
+                        <div className="font-bold text-sm text-gray-800">{service.name}</div>
+                        <div className="text-xs text-primary font-bold">
+                          ₹{service.min_price} - ₹{service.max_price}
+                        </div>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="col-span-2 text-gray-500 italic text-sm">No specific services listed.</div>
                 )}
               </div>
             </div>
@@ -180,13 +202,28 @@ export default function MechanicDetailModal({ mechanic, isOpen, onClose, onReque
           {/* Section 5: Action Buttons (Sticky Bottom) */}
           <div className="p-4 bg-white border-t border-gray-100 grid grid-cols-1 gap-3">
             <button
-              onClick={() => onRequestHelp && onRequestHelp(mechanic)}
+              onClick={() => {
+                if (!selectedCategoryId && mechanic.pricing && Object.values(mechanic.pricing).length > 0) {
+                  alert('Please select a service first.');
+                  return;
+                }
+                onRequestHelp && onRequestHelp(mechanic, selectedCategoryId);
+              }}
               className="w-full bg-primary hover:bg-orange-600 text-white font-bold py-3.5 px-4 rounded-xl transition-all shadow-md shadow-primary/20 flex items-center justify-center gap-2 text-lg"
             >
               <FiTool size={20} />
               Request Help Now
             </button>
             <div className="grid grid-cols-2 gap-3">
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${mechanic.latitude},${mechanic.longitude}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-3 px-4 rounded-xl transition-colors border border-blue-200 col-span-2"
+              >
+                <FiMapPin size={18} />
+                Get Directions
+              </a>
               <a
                 href={`tel:${mechanic.phone}`}
                 className="flex items-center justify-center gap-2 bg-green-50 hover:bg-green-100 text-green-700 font-bold py-3 px-4 rounded-xl transition-colors border border-green-200"

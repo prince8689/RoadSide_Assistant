@@ -91,7 +91,7 @@ const getUserNotifications = async (userId, filters) => {
 
   // Get total count
   const countResult = await query(
-    'SELECT COUNT(*)::integer AS total FROM notifications WHERE user_id = $1',
+    'SELECT COUNT(*)::integer AS total FROM notifications WHERE user_id = $1 AND is_read = false',
     [userId]
   );
   const total = countResult.rows[0].total;
@@ -106,7 +106,7 @@ const getUserNotifications = async (userId, filters) => {
   // Get paginated results
   const notificationsResult = await query(
     `SELECT * FROM notifications 
-     WHERE user_id = $1 
+     WHERE user_id = $1 AND is_read = false
      ORDER BY created_at DESC 
      LIMIT $2 OFFSET $3`,
     [userId, limit, offset]

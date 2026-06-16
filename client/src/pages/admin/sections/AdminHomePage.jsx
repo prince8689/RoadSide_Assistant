@@ -44,16 +44,16 @@ const AdminHomePage = () => {
 
       {/* Stats Rows */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Total Users" value={stats?.total_users || 0} icon={FiUsers} color="blue" trend={12} />
-        <StatsCard title="Total Mechanics" value={stats?.total_mechanics || 0} icon={FiTool} color="orange" trend={5} />
+        <StatsCard title="Total Users" value={stats?.total_users || 0} icon={FiUsers} color="blue" trend={stats?.users_trend || 0} />
+        <StatsCard title="Total Mechanics" value={stats?.total_mechanics || 0} icon={FiTool} color="orange" trend={stats?.mechanics_trend || 0} />
         <StatsCard title="Verified Mechanics" value={stats?.verified_mechanics || 0} icon={FiCheckCircle} color="green" />
         <StatsCard title="Pending Verify" value={stats?.pending_mechanics || pendingMechanics.length || 0} icon={FiClock} color="purple" />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard title="Total Requests" value={stats?.total_requests || 0} icon={FiList} color="blue" trend={8} />
+        <StatsCard title="Total Requests" value={stats?.total_requests || 0} icon={FiList} color="blue" trend={stats?.requests_trend || 0} />
         <StatsCard title="Active Jobs" value={stats?.active_jobs || 0} icon={FiZap} color="orange" />
-        <StatsCard title="Total Earnings" value={`₹${stats?.total_earnings || 0}`} icon={FiCheckCircle} color="green" trend={15} />
+        <StatsCard title="Total Earnings" value={`₹${stats?.total_earnings || 0}`} icon={FiCheckCircle} color="green" trend={stats?.earnings_trend || 0} />
         <StatsCard title="Avg Rating" value={`${stats?.avg_rating || '0.0'} ⭐`} icon={FiClock} color="purple" />
       </div>
 
@@ -84,7 +84,7 @@ const AdminHomePage = () => {
                       <td className="p-4 text-sm font-medium text-dark">{req.service?.name || 'Service'}</td>
                       <td className="p-4 text-sm text-gray-600">{req.user?.full_name}</td>
                       <td className="p-4 text-sm"><StatusBadge status={req.status} /></td>
-                      <td className="p-4 text-sm font-bold text-dark text-right">₹{req.estimated_price}</td>
+                      <td className="p-4 text-sm font-bold text-dark text-right">₹{req.final_price || '-'}</td>
                     </tr>
                   ))
                 )}

@@ -3,12 +3,13 @@ import {
   getMyMechanicProfile, updateAvailability,
   getAvailableRequests, getMechanicStats
 } from '../api/mechanicApi';
+import { getActiveRequest } from '../api/requestApi';
 
 const useMechanicStore = create((set, get) => ({
   profile: null,
   isAvailable: false,
   availableRequests: [],
-  activeJob: null,
+  activeJobs: [],
   stats: null,
   isLoading: false,
 
@@ -16,10 +17,10 @@ const useMechanicStore = create((set, get) => ({
     set({ isLoading: true });
     try {
       const res = await getMyMechanicProfile();
-      const profile = res.data.data || res.data;
+      const profileData = res.data?.profile || res.data;
       set({
-        profile,
-        isAvailable: profile.is_available,
+        profile: profileData,
+        isAvailable: profileData?.is_available || false,
         isLoading: false
       });
     } catch { set({ isLoading: false }); }
@@ -39,19 +40,26 @@ const useMechanicStore = create((set, get) => ({
   fetchAvailableRequests: async () => {
     try {
       const res = await getAvailableRequests();
-      set({ availableRequests: res.data.data || [] });
+      set({ availableRequests: res.data?.requests || res.data || [] });
     } catch {}
   },
 
   fetchStats: async () => {
     try {
       const res = await getMechanicStats();
-      set({ stats: res.data.data || res.data });
+      set({ stats: res.data?.stats || res.data });
     } catch {}
   },
 
-  setActiveJob: (job) => set({ activeJob: job }),
-  clearActiveJob: () => set({ activeJob: null }),
+  fetchActiveJobs: async () => {
+    try {
+      const res = await getActiveRequest();
+      set({ activeJobs: res.data?.requests || [] });
+    } catch {}
+  },
+
+  setActiveJobs: (jobs) => set({ activeJobs: jobs }),
+  clearActiveJobs: () => set({ activeJobs: [] }),
 
   addNewRequest: (request) => {
     set((state) => ({

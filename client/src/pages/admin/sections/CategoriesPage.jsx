@@ -17,7 +17,7 @@ const CategoriesPage = () => {
     setIsLoading(true);
     try {
       const res = await getAllCategories();
-      setCategories(res.data.data || []);
+      setCategories(res.data?.categories || res.data || []);
     } catch { } finally { setIsLoading(false); }
   };
 

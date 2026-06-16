@@ -13,11 +13,15 @@ const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
+import PaymentPage from './pages/user/PaymentPage';
+import InvoicePage from './pages/user/InvoicePage';
 import NotFound from './components/common/NotFound';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import ScrollToTop from './components/common/ScrollToTop';
 import GoogleMapsProvider from './components/maps/GoogleMapsProvider';
+import AIChatbot from './components/chat/AIChatbot';
 
 function App() {
   const { token, user } = useSelector((state) => state.auth);
@@ -75,8 +79,21 @@ function App() {
                 <Route path="/register" element={
                   token ? <Navigate to={getHomePath()} /> : <RegisterPage />
                 } />
+                <Route path="/forgot-password" element={
+                  token ? <Navigate to={getHomePath()} /> : <ForgotPasswordPage />
+                } />
 
                 {/* User routes */}
+                <Route path="/payment/:invoiceId" element={
+                  <ProtectedRoute allowedRoles={['user']}>
+                    <PaymentPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="/dashboard/invoice/:requestId" element={
+                  <ProtectedRoute allowedRoles={['user', 'mechanic', 'admin']}>
+                    <InvoicePage />
+                  </ProtectedRoute>
+                } />
                 <Route path="/dashboard/*" element={
                   <ProtectedRoute allowedRoles={['user']}>
                     <UserDashboard />
@@ -101,6 +118,8 @@ function App() {
                 <Route path="/" element={<Navigate to={getHomePath()} />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              
+              <AIChatbot />
             </Suspense>
           </div>
         </Router>

@@ -28,3 +28,17 @@ export const getRequestsReport = (params) =>
   api.get('/admin/reports/requests', { params });
 export const getMechanicPerformance = () =>
   api.get('/admin/reports/mechanics');
+
+// Complaints & Enforcement
+export const getComplaints = (params) => api.get('/complaints/admin', { params });
+export const updateComplaintStatus = (id, data) => api.patch(`/complaints/admin/${id}/status`, data);
+export const enforceMechanicAction = (mechanicId, data) => api.post(`/complaints/admin/enforce/${mechanicId}`, data);
+export const getSafetyAlerts = () => api.get('/complaints/admin/safety-alerts');
+export const getAuditLogs = () => api.get('/complaints/admin/audit-logs');
+
+// Billing
+export const getFinancialStats = () => api.get('/billing/admin/stats');
+
+// Settings
+export const getAdminSettings = () => api.get('/admin/settings');
+export const updateAdminSettings = (data) => api.patch('/admin/settings', data);

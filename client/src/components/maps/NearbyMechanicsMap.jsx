@@ -17,7 +17,8 @@ const mapOptions = {
     { featureType: "transit", stylers: [{ visibility: "off" }] },
     { featureType: "road", elementType: "geometry", stylers: [{ color: "#f5f5f5" }] },
     { featureType: "water", elementType: "geometry", stylers: [{ color: "#c9e8ff" }] }
-  ]
+  ],
+  mapId: "ROADSIDE_MAP_ID"
 };
 
 export default function NearbyMechanicsMap({ 
@@ -29,6 +30,7 @@ export default function NearbyMechanicsMap({
   showUserMarker = true
 }) {
   const [map, setMap] = useState(null);
+  const [dynamicMetrics, setDynamicMetrics] = useState({});
 
   const onLoad = useCallback((mapInstance) => {
     setMap(mapInstance);
@@ -42,24 +44,92 @@ export default function NearbyMechanicsMap({
     }
   };
 
-  const getMarkerIcon = (mechanic) => {
-    // Determine color based on status
-    let color = '#FF8A00'; // Default orange (available)
-    if (mechanic.is_on_duty) color = '#DC3545'; // Red (busy)
-    
-    return {
-      path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
-      fillColor: color,
-      fillOpacity: 1,
-      strokeWeight: 2,
-      strokeColor: '#FFFFFF',
-      scale: 1.5,
-      anchor: new window.google.maps.Point(12, 24)
-    };
+  React.useEffect(() => {
+    if (mechanics.length > 0 && userLocation && window.google) {
+      const service = new window.google.maps.DistanceMatrixService();
+      const destinations = mechanics.map(m => ({
+        lat: parseFloat(m.latitude),
+        lng: parseFloat(m.longitude)
+      }));
+
+      service.getDistanceMatrix(
+        {
+          origins: [{ lat: userLocation.lat, lng: userLocation.lng }],
+          destinations: destinations,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+        },
+        (response, status) => {
+          if (status === window.google.maps.DistanceMatrixStatus.OK) {
+            const results = response.rows[0].elements;
+            const newMetrics = {};
+            mechanics.forEach((mech, index) => {
+              if (results[index].status === 'OK') {
+                newMetrics[mech.mechanic_id || mech.id] = {
+                  distanceText: results[index].distance.text,
+                  durationText: results[index].duration.text
+                };
+              }
+            });
+            setDynamicMetrics(newMetrics);
+          }
+        }
+      );
+    }
+  }, [mechanics, userLocation]);
+
+  const getMarkerColor = (mechanic) => {
+    return mechanic.is_on_duty ? '#DC3545' : '#FF8A00';
   };
 
+  const markersRef = React.useRef([]);
+
+  // Manage AdvancedMarkerElements
+  React.useEffect(() => {
+    if (!map || !window.google?.maps?.marker) return;
+
+    // Clear old markers first
+    markersRef.current.forEach(marker => {
+      marker.map = null;
+    });
+    markersRef.current = [];
+
+    // Create new markers
+    mechanics.forEach(mechanic => {
+      const pinElement = new window.google.maps.marker.PinElement({
+        background: getMarkerColor(mechanic),
+        borderColor: '#FFFFFF',
+        glyphColor: '#FFFFFF',
+      });
+
+      const marker = new window.google.maps.marker.AdvancedMarkerElement({
+        map,
+        position: {
+          lat: parseFloat(mechanic.latitude), 
+          lng: parseFloat(mechanic.longitude)
+        },
+        content: pinElement.element,
+        title: mechanic.name
+      });
+
+      // Add click listener
+      marker.addListener('click', () => {
+        if (onMechanicSelect) onMechanicSelect(mechanic);
+      });
+
+      markersRef.current.push(marker);
+    });
+
+    // Cleanup on unmount or dependency change
+    return () => {
+      markersRef.current.forEach(marker => {
+        if (marker) marker.map = null;
+      });
+      markersRef.current = [];
+    };
+  }, [map, mechanics, onMechanicSelect]);
+
   const userMarkerIcon = {
-    path: window.google.maps.SymbolPath.CIRCLE,
+    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
     fillColor: '#007BFF',
     fillOpacity: 1,
     strokeWeight: 3,
@@ -112,20 +182,7 @@ export default function NearbyMechanicsMap({
           />
         )}
 
-        {/* Mechanic Markers */}
-        {mechanics.map((mechanic) => (
-          <Marker
-            key={mechanic.mechanic_id || mechanic.id}
-            position={{ 
-              lat: parseFloat(mechanic.latitude), 
-              lng: parseFloat(mechanic.longitude) 
-            }}
-            icon={getMarkerIcon(mechanic)}
-            onClick={() => onMechanicSelect && onMechanicSelect(mechanic)}
-            animation={window.google.maps.Animation.DROP}
-            zIndex={5}
-          />
-        ))}
+        {/* Mechanic Markers are managed via useEffect with AdvancedMarkerElement */}
 
         {/* InfoWindow for selected mechanic */}
         {selectedMechanic && (
@@ -151,8 +208,8 @@ export default function NearbyMechanicsMap({
               </div>
               
               <div className="text-xs text-gray-600 mb-3 space-y-1">
-                <p>📍 {selectedMechanic.distanceText || `${selectedMechanic.distance_km} km away`}</p>
-                <p>⏱️ {selectedMechanic.estimatedArrival || 'Unknown ETA'}</p>
+                <p>📍 {dynamicMetrics[selectedMechanic.mechanic_id || selectedMechanic.id]?.distanceText || selectedMechanic.distanceText || `${selectedMechanic.distance_km} km away`}</p>
+                <p>⏱️ {dynamicMetrics[selectedMechanic.mechanic_id || selectedMechanic.id]?.durationText || selectedMechanic.estimatedArrival || 'Unknown ETA'}</p>
               </div>
               
               <div className="flex gap-2">

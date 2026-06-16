@@ -62,11 +62,18 @@ router.get(
   requestController.getActiveRequest
 );
 
-// ---- Get Available Requests — Pending (mechanic only) ----
+// ---- Get Available/Pending Requests (mechanic only) ----
 router.get(
   '/available',
   authorizeRoles('mechanic'),
   requestController.getAvailableRequests
+);
+
+// ---- Update Request Location (user only) ----
+router.patch(
+  '/:id/location',
+  authorizeRoles('user'),
+  requestController.updateLocation
 );
 
 // ---- Accept Request (mechanic only) ----
@@ -106,12 +113,44 @@ router.patch(
   requestController.cancelRequest
 );
 
+// ---- Submit Feedback (user only) ----
+router.post(
+  '/:id/feedback',
+  authorizeRoles('user'),
+  requestController.submitFeedback
+);
+
 // ---- Get Single Request (any authenticated user with access) ----
 // MUST be last — /:id is a catch-all param route
 router.get(
   '/:id',
   authorizeRoles('user', 'mechanic', 'admin'),
   requestController.getRequestById
+);
+
+
+const upload = require('../../middleware/upload');
+
+// ---- Submit Payment (User) ----
+router.post(
+  '/:id/submit-payment',
+  authorizeRoles('user'),
+  upload.single('receipt'),
+  requestController.submitPayment
+);
+
+// ---- Verify Payment (Mechanic) ----
+router.post(
+  '/:id/verify-payment',
+  authorizeRoles('mechanic'),
+  requestController.verifyPayment
+);
+
+// ---- Reject Payment (Mechanic) ----
+router.post(
+  '/:id/reject-payment',
+  authorizeRoles('mechanic'),
+  requestController.rejectPayment
 );
 
 module.exports = router;

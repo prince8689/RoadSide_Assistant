@@ -15,7 +15,7 @@
 //   getMechanicById        — Public profile (no sensitive docs)
 //   getMechanicStats       — Job statistics for mechanic dashboard
 
-const { query } = require('../../config/db');
+const { query, pool } = require('../../config/db');
 const { redisClient } = require('../../config/redis');
 const { AppError } = require('../../middleware/errorHandler');
 const { logger } = require('../../utils/logger');
@@ -35,7 +35,11 @@ const { logger } = require('../../utils/logger');
  * @throws {AppError} 409 if mechanic profile already exists for this user
  */
 const createMechanicProfile = async (userId, data) => {
-  const { business_name, experience_years, specializations, documents } = data;
+  const { business_name, experience_years, specializations, documents, phone, working_hours_start, working_hours_end } = data;
+
+  if (phone !== undefined) {
+    await query('UPDATE users SET phone = $1, updated_at = NOW() WHERE id = $2', [phone, userId]);
+  }
 
   // Check if profile already exists for this user
   const existing = await query(
@@ -52,9 +56,9 @@ const createMechanicProfile = async (userId, data) => {
   const result = await query(
     `INSERT INTO mechanic_profiles (
       user_id, business_name, experience_years, specializations, documents,
-      is_verified, is_available, rating, total_jobs
+      is_verified, is_available, rating, total_jobs, working_hours_start, working_hours_end
     )
-    VALUES ($1, $2, $3, $4, $5, false, false, 0, 0)
+    VALUES ($1, $2, $3, $4, $5, true, false, 0, 0)
     RETURNING *`,
     [
       userId,
@@ -62,6 +66,8 @@ const createMechanicProfile = async (userId, data) => {
       experience_years,
       specializations,          // pg driver auto-converts JS array → TEXT[]
       JSON.stringify(documents), // JSONB requires JSON string
+      working_hours_start,
+      working_hours_end
     ]
   );
 
@@ -87,7 +93,9 @@ const getMechanicProfile = async (userId) => {
       u.full_name,
       u.email,
       u.phone,
-      u.profile_picture
+      u.profile_picture,
+      mp.working_hours_start,
+      mp.working_hours_end
     FROM mechanic_profiles mp
     JOIN users u ON u.id = mp.user_id
     WHERE mp.user_id = $1`,
@@ -130,7 +138,7 @@ const updateMechanicProfile = async (userId, data) => {
   const values = [];
   let paramIndex = 1;
 
-  const allowedFields = ['business_name', 'experience_years'];
+  const allowedFields = ['business_name', 'experience_years', 'working_hours_start', 'working_hours_end'];
 
   for (const field of allowedFields) {
     if (data[field] !== undefined) {
@@ -151,22 +159,25 @@ const updateMechanicProfile = async (userId, data) => {
     values.push(JSON.stringify(data.documents));
   }
 
-  if (updates.length === 0) {
-    throw new AppError('No valid fields to update', 400);
+  // Update phone in users table if provided
+  if (data.phone !== undefined) {
+    await query('UPDATE users SET phone = $1, updated_at = NOW() WHERE id = $2', [data.phone, userId]);
   }
 
-  // Always update the timestamp
-  updates.push('updated_at = NOW()');
-
-  // Add userId as the last parameter
-  values.push(userId);
-
-  const result = await query(
-    `UPDATE mechanic_profiles SET ${updates.join(', ')}
-     WHERE user_id = $${paramIndex}
-     RETURNING *`,
-    values
-  );
+  let result;
+  if (updates.length > 0) {
+    // Always update the timestamp
+    updates.push('updated_at = NOW()');
+    values.push(userId);
+    result = await query(
+      `UPDATE mechanic_profiles SET ${updates.join(', ')}
+       WHERE user_id = $${paramIndex}
+       RETURNING *`,
+      values
+    );
+  } else {
+    result = await query('SELECT * FROM mechanic_profiles WHERE user_id = $1', [userId]);
+  }
 
   return result.rows[0];
 };
@@ -191,9 +202,9 @@ const updateLocation = async (userId, lat, lng) => {
   // Update location in PostgreSQL
   const result = await query(
     `UPDATE mechanic_profiles
-     SET current_lat = $1, current_lng = $2, updated_at = NOW()
+     SET latitude = $1, longitude = $2, last_location_update = NOW()
      WHERE user_id = $3
-     RETURNING id, user_id, current_lat, current_lng`,
+     RETURNING id, user_id, latitude, longitude`,
     [lat, lng, userId]
   );
 
@@ -266,41 +277,81 @@ const updateAvailability = async (userId, isAvailable) => {
  */
 const getNearbyMechanics = async (lat, lng, radiusKm = 10) => {
   const result = await query(
-    `SELECT
-      mp.*,
-      u.full_name,
-      u.phone,
-      u.profile_picture,
-      ROUND(
-        (6371 * acos(
-          cos(radians($1)) * cos(radians(mp.current_lat)) *
-          cos(radians(mp.current_lng) - radians($2)) +
-          sin(radians($1)) * sin(radians(mp.current_lat))
-        ))::numeric, 2
-      ) AS distance_km
-    FROM mechanic_profiles mp
-    JOIN users u ON u.id = mp.user_id
-    WHERE
-      mp.is_verified = true
-      AND mp.is_available = true
-      AND mp.current_lat IS NOT NULL
-      AND (
+      `SELECT 
+        u.id AS user_id,
+        u.full_name AS name,
+        u.phone,
+        u.profile_picture,
+        mp.business_name,
+        mp.experience_years,
+        mp.working_hours_start,
+        mp.working_hours_end,
+        mp.specializations,
+        mp.rating AS average_rating,
+        mp.total_jobs,
+        mp.latitude,
+        mp.longitude,
+        (
+          6371 * acos(
+            cos(radians($1)) * cos(radians(mp.latitude)) *
+            cos(radians(mp.longitude) - radians($2)) +
+            sin(radians($1)) * sin(radians(mp.latitude))
+          )
+        ) AS distance_km
+      FROM mechanic_profiles mp
+      JOIN users u ON u.id = mp.user_id
+      WHERE mp.is_available = true 
+        AND mp.is_verified = true
+      HAVING (
         6371 * acos(
-          cos(radians($1)) * cos(radians(mp.current_lat)) *
-          cos(radians(mp.current_lng) - radians($2)) +
-          sin(radians($1)) * sin(radians(mp.current_lat))
+          cos(radians($1)) * cos(radians(mp.latitude)) *
+          cos(radians(mp.longitude) - radians($2)) +
+          sin(radians($1)) * sin(radians(mp.latitude))
         )
       ) <= $3
-    ORDER BY distance_km ASC
-    LIMIT 20`,
+      ORDER BY distance_km ASC
+      LIMIT 20`,
     [lat, lng, radiusKm]
   );
 
-  // Strip sensitive document data from results
-  return result.rows.map((mechanic) => {
-    const { documents, ...publicData } = mechanic;
-    return publicData;
-  });
+    // Fetch their prices
+    const mechanicIds = result.rows.map(m => m.user_id);
+    let pricingMap = {};
+    if (mechanicIds.length > 0) {
+      const priceResult = await query(
+        `SELECT ms.mechanic_id, ms.category_id, ms.min_price, ms.max_price, ms.is_enabled,
+                sc.name, sc.icon, sc.slug, sc.base_price
+         FROM mechanic_services ms
+         JOIN service_categories sc ON ms.category_id = sc.id
+         WHERE ms.mechanic_id = ANY($1) AND ms.is_enabled = true`,
+        [mechanicIds]
+      );
+      
+      priceResult.rows.forEach(p => {
+        if (!pricingMap[p.mechanic_id]) pricingMap[p.mechanic_id] = {};
+        pricingMap[p.mechanic_id][p.category_id] = p;
+      });
+    }
+
+    return result.rows.map((row) => ({
+      mechanic_id: row.user_id,
+      name: row.name,
+      phone: row.phone,
+      profile_picture: row.profile_picture,
+      business_name: row.business_name,
+      experience_years: row.experience_years,
+      working_hours_start: row.working_hours_start,
+      working_hours_end: row.working_hours_end,
+      specializations: row.specializations,
+      average_rating: row.average_rating,
+      total_jobs: row.total_jobs,
+      distance_km: parseFloat(row.distance_km).toFixed(1),
+      pricing: pricingMap[row.user_id] || {},
+      coordinates: {
+        lat: row.latitude,
+        lng: row.longitude,
+      },
+    }));
 };
 
 // ============================================
@@ -328,8 +379,8 @@ const getMechanicById = async (mechanicId) => {
       mp.is_available,
       mp.rating,
       mp.total_jobs,
-      mp.current_lat,
-      mp.current_lng,
+      mp.latitude,
+      mp.longitude,
       mp.created_at,
       u.full_name,
       u.phone,
@@ -397,6 +448,72 @@ const getMechanicStats = async (userId) => {
   };
 };
 
+// ============================================
+// GET CUSTOM SERVICES PRICING
+// ============================================
+
+/**
+ * Fetch all custom service prices for a mechanic
+ * Returns an array of category definitions joined with the mechanic's custom prices.
+ */
+const getMechanicServices = async (mechanicId) => {
+  const result = await query(
+    `SELECT 
+      sc.id AS category_id, 
+      sc.name, 
+      sc.slug, 
+      sc.icon,
+      sc.base_price,
+      COALESCE(ms.min_price, sc.base_price) AS min_price,
+      COALESCE(ms.max_price, sc.base_price) AS max_price,
+      COALESCE(ms.is_enabled, true) AS is_enabled
+     FROM service_categories sc
+     LEFT JOIN mechanic_services ms 
+       ON sc.id = ms.category_id AND ms.mechanic_id = $1
+     ORDER BY sc.name ASC`,
+    [mechanicId]
+  );
+  return result.rows;
+};
+
+// ============================================
+// UPDATE CUSTOM SERVICES PRICING
+// ============================================
+
+/**
+ * Bulk update a mechanic's custom services
+ */
+const updateMechanicServices = async (mechanicId, servicesData) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // UPSERT pattern
+    for (const s of servicesData) {
+      await client.query(
+        `INSERT INTO mechanic_services (mechanic_id, category_id, min_price, max_price, is_enabled)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (mechanic_id, category_id) 
+         DO UPDATE SET 
+           min_price = EXCLUDED.min_price,
+           max_price = EXCLUDED.max_price,
+           is_enabled = EXCLUDED.is_enabled,
+           updated_at = NOW()`,
+        [mechanicId, s.category_id, s.min_price, s.max_price, s.is_enabled]
+      );
+    }
+
+    await client.query('COMMIT');
+    return await getMechanicServices(mechanicId);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   createMechanicProfile,
   getMechanicProfile,
@@ -406,4 +523,6 @@ module.exports = {
   getNearbyMechanics,
   getMechanicById,
   getMechanicStats,
+  getMechanicServices,
+  updateMechanicServices,
 };

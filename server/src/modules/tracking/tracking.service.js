@@ -29,20 +29,20 @@ const getLastKnownLocation = async (mechanicId) => {
 
   // 2. Fall back to PostgreSQL
   const result = await query(
-    'SELECT current_lat, current_lng, updated_at FROM mechanic_profiles WHERE user_id = $1',
+    'SELECT latitude, longitude, last_location_update FROM mechanic_profiles WHERE user_id = $1',
     [mechanicId]
   );
 
   if (result.rows.length === 0) {
-    throw new AppError('Mechanic profile not found', 404);
+    throw new AppError('Mechanic location not found', 404);
   }
 
-  const { current_lat, current_lng, updated_at } = result.rows[0];
+  const { latitude, longitude, last_location_update } = result.rows[0];
 
   return {
-    lat: current_lat,
-    lng: current_lng,
-    updatedAt: updated_at,
+    lat: latitude,
+    lng: longitude,
+    updatedAt: last_location_update,
     source: 'db'
   };
 };

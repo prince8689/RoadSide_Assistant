@@ -76,7 +76,13 @@ const getAllUsers = async (filters) => {
       mp.is_verified,
       mp.is_available,
       mp.rating,
-      mp.total_jobs
+      mp.total_jobs,
+      mp.total_requests_received,
+      mp.total_requests_accepted,
+      mp.total_requests_rejected,
+      mp.trust_score,
+      mp.total_strikes,
+      mp.is_blocked
     FROM users u
     LEFT JOIN mechanic_profiles mp ON mp.user_id = u.id AND u.role = 'mechanic'
     ${whereClause}
@@ -85,7 +91,36 @@ const getAllUsers = async (filters) => {
     [...values, limit, offset]
   );
 
-  return formatPaginatedResponse(usersResult.rows, total, page, limit);
+  const formattedRows = usersResult.rows.map(row => {
+    if (row.role === 'mechanic') {
+      const {
+        mechanic_profile_id, business_name, is_verified, is_available, rating, total_jobs,
+        total_requests_received, total_requests_accepted, total_requests_rejected,
+        trust_score, total_strikes, is_blocked, ...userBase
+      } = row;
+      
+      return {
+        ...userBase,
+        mechanic_profile: {
+          id: mechanic_profile_id,
+          business_name,
+          is_verified,
+          is_available,
+          rating,
+          total_jobs,
+          total_requests_received,
+          total_requests_accepted,
+          total_requests_rejected,
+          trust_score,
+          total_strikes,
+          is_blocked
+        }
+      };
+    }
+    return row;
+  });
+
+  return formatPaginatedResponse(formattedRows, total, page, limit);
 };
 
 /**
@@ -241,14 +276,16 @@ const verifyMechanic = async (mechanicProfileId, isVerified, rejectionReason) =>
   }
 
   const updateFields = isVerified
-    ? 'is_verified = true, updated_at = NOW()'
-    : `is_verified = false, updated_at = NOW()`;
+    ? 'is_verified = true, rejection_reason = NULL, updated_at = NOW()'
+    : 'is_verified = false, rejection_reason = $2, updated_at = NOW()';
+
+  const queryParams = isVerified ? [mechanicProfileId] : [mechanicProfileId, rejectionReason || null];
 
   const result = await query(
     `UPDATE mechanic_profiles SET ${updateFields}
      WHERE id = $1
      RETURNING *`,
-    [mechanicProfileId]
+    queryParams
   );
 
   const profile = result.rows[0];
@@ -418,6 +455,7 @@ const getAllRequests = async (filters) => {
       u.phone AS user_phone,
       m.full_name AS mechanic_name,
       m.email AS mechanic_email,
+      m.phone AS mechanic_phone,
       v.make AS vehicle_make,
       v.model AS vehicle_model,
       v.license_plate AS vehicle_license_plate,
@@ -434,7 +472,15 @@ const getAllRequests = async (filters) => {
     [...values, limit, offset]
   );
 
-  return formatPaginatedResponse(result.rows, total, page, limit);
+  const formattedRows = result.rows.map(row => ({
+    ...row,
+    service: { name: row.category_name, slug: row.category_slug },
+    user: { full_name: row.user_name, email: row.user_email, phone: row.user_phone },
+    mechanic: row.mechanic_id ? { user: { full_name: row.mechanic_name, email: row.mechanic_email, phone: row.mechanic_phone } } : null,
+    vehicle: { make: row.vehicle_make, model: row.vehicle_model, license_plate: row.vehicle_license_plate }
+  }));
+
+  return formatPaginatedResponse(formattedRows, total, page, limit);
 };
 
 /**
@@ -477,7 +523,30 @@ const getRequestDetails = async (requestId) => {
     throw new AppError('Service request not found', 404);
   }
 
-  return result.rows[0];
+  const request = result.rows[0];
+
+  // Fetch invoice if exists
+  const invoiceResult = await query(
+    `SELECT * FROM invoices WHERE request_id = $1`, [requestId]
+  );
+
+  if (invoiceResult.rows.length > 0) {
+    const invoice = invoiceResult.rows[0];
+    const itemsResult = await query(
+      `SELECT * FROM invoice_items WHERE invoice_id = $1`, [invoice.id]
+    );
+    invoice.items = itemsResult.rows;
+    request.invoice = invoice;
+  }
+
+  request.service = { name: request.category_name, slug: request.category_slug, base_price: request.category_base_price };
+  request.user = { full_name: request.user_name, email: request.user_email, phone: request.user_phone };
+  if (request.mechanic_id) {
+    request.mechanic = { user: { full_name: request.mechanic_name, email: request.mechanic_email, phone: request.mechanic_phone } };
+  }
+  request.vehicle = { make: request.vehicle_make, model: request.vehicle_model, license_plate: request.vehicle_license_plate };
+
+  return request;
 };
 
 // ============================================
@@ -491,36 +560,34 @@ const getRequestDetails = async (requestId) => {
  * @returns {Object} Dashboard stats
  */
 const getDashboardStats = async () => {
-  // User counts
-  const userStats = await query(
-    `SELECT
-      COUNT(CASE WHEN role = 'user' THEN 1 END)::integer AS total_users,
-      COUNT(CASE WHEN role = 'mechanic' THEN 1 END)::integer AS total_mechanics,
-      COUNT(CASE WHEN role = 'admin' THEN 1 END)::integer AS total_admins
-    FROM users`,
-    []
-  );
-
-  // Mechanic verification stats
-  const mechanicStats = await query(
-    `SELECT
-      COUNT(CASE WHEN is_verified = true THEN 1 END)::integer AS verified_mechanics,
-      COUNT(CASE WHEN is_verified = false THEN 1 END)::integer AS pending_verification
-    FROM mechanic_profiles`,
-    []
-  );
-
-  // Request stats
-  const requestStats = await query(
-    `SELECT
-      COUNT(*)::integer AS total_requests,
-      COUNT(CASE WHEN status NOT IN ('completed', 'cancelled') THEN 1 END)::integer AS active_requests,
-      COUNT(CASE WHEN status = 'completed' THEN 1 END)::integer AS completed_requests,
-      COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::integer AS cancelled_requests,
-      COUNT(CASE WHEN created_at::date = CURRENT_DATE THEN 1 END)::integer AS todays_requests
-    FROM service_requests`,
-    []
-  );
+  const statsQuery = await query(`
+    WITH current_month AS (
+      SELECT
+        (SELECT COUNT(CASE WHEN role = 'user' THEN 1 END) FROM users) AS total_users,
+        (SELECT COUNT(CASE WHEN role = 'user' AND created_at >= date_trunc('month', current_date) THEN 1 END) FROM users) AS users_this_month,
+        (SELECT COUNT(CASE WHEN role = 'user' AND created_at >= date_trunc('month', current_date - interval '1 month') AND created_at < date_trunc('month', current_date) THEN 1 END) FROM users) AS users_last_month,
+        
+        (SELECT COUNT(CASE WHEN role = 'mechanic' THEN 1 END) FROM users) AS total_mechanics,
+        (SELECT COUNT(CASE WHEN role = 'mechanic' AND created_at >= date_trunc('month', current_date) THEN 1 END) FROM users) AS mechanics_this_month,
+        (SELECT COUNT(CASE WHEN role = 'mechanic' AND created_at >= date_trunc('month', current_date - interval '1 month') AND created_at < date_trunc('month', current_date) THEN 1 END) FROM users) AS mechanics_last_month,
+        
+        (SELECT COUNT(CASE WHEN is_verified = true THEN 1 END) FROM mechanic_profiles) AS verified_mechanics,
+        (SELECT COUNT(CASE WHEN is_verified = false THEN 1 END) FROM mechanic_profiles) AS pending_mechanics,
+        
+        (SELECT COUNT(*) FROM service_requests) AS total_requests,
+        (SELECT COUNT(*) FROM service_requests WHERE created_at >= date_trunc('month', current_date)) AS requests_this_month,
+        (SELECT COUNT(*) FROM service_requests WHERE created_at >= date_trunc('month', current_date - interval '1 month') AND created_at < date_trunc('month', current_date)) AS requests_last_month,
+        
+        (SELECT COUNT(CASE WHEN status NOT IN ('completed', 'cancelled') THEN 1 END) FROM service_requests) AS active_jobs,
+        
+        (SELECT SUM(final_price) FROM service_requests WHERE status = 'completed') AS total_earnings,
+        (SELECT SUM(final_price) FROM service_requests WHERE status = 'completed' AND created_at >= date_trunc('month', current_date)) AS earnings_this_month,
+        (SELECT SUM(final_price) FROM service_requests WHERE status = 'completed' AND created_at >= date_trunc('month', current_date - interval '1 month') AND created_at < date_trunc('month', current_date)) AS earnings_last_month,
+        
+        (SELECT ROUND(AVG(rating)::numeric, 1) FROM mechanic_profiles WHERE rating > 0) AS avg_rating
+    )
+    SELECT * FROM current_month
+  `, []);
 
   // Average completion time (in minutes) for completed requests
   const avgTimeResult = await query(
@@ -535,10 +602,34 @@ const getDashboardStats = async () => {
     []
   );
 
+  const r = statsQuery.rows[0];
+
+  const calcTrend = (current, last) => {
+    if (!last || last === 0) return current > 0 ? 100 : 0;
+    return Math.round(((current - last) / last) * 100);
+  };
+
   return {
-    ...userStats.rows[0],
-    ...mechanicStats.rows[0],
-    ...requestStats.rows[0],
+    total_users: parseInt(r.total_users) || 0,
+    users_trend: calcTrend(parseInt(r.users_this_month), parseInt(r.users_last_month)),
+    
+    total_mechanics: parseInt(r.total_mechanics) || 0,
+    mechanics_trend: calcTrend(parseInt(r.mechanics_this_month), parseInt(r.mechanics_last_month)),
+    
+    verified_mechanics: parseInt(r.verified_mechanics) || 0,
+    pending_mechanics: parseInt(r.pending_mechanics) || 0,
+    pending_verification: parseInt(r.pending_mechanics) || 0, // Fallback for older frontend code
+    
+    total_requests: parseInt(r.total_requests) || 0,
+    requests_trend: calcTrend(parseInt(r.requests_this_month), parseInt(r.requests_last_month)),
+    
+    active_requests: parseInt(r.active_jobs) || 0,
+    active_jobs: parseInt(r.active_jobs) || 0,
+    
+    total_earnings: parseFloat(r.total_earnings) || 0,
+    earnings_trend: calcTrend(parseFloat(r.earnings_this_month || 0), parseFloat(r.earnings_last_month || 0)),
+    
+    avg_rating: parseFloat(r.avg_rating) || 0,
     avg_completion_time_minutes: parseFloat(avgTimeResult.rows[0].avg_completion_time_minutes) || 0,
   };
 };
@@ -673,6 +764,54 @@ const getMechanicPerformance = async () => {
   return result.rows;
 };
 
+// ============================================
+// ─── SETTINGS ────────────────────────────────
+// ============================================
+
+/**
+ * Get admin settings.
+ *
+ * @returns {Object} Admin settings
+ */
+const getSettings = async () => {
+  const result = await query('SELECT * FROM admin_settings LIMIT 1', []);
+  return result.rows[0];
+};
+
+/**
+ * Update admin settings.
+ *
+ * @param {Object} data - Fields to update
+ * @returns {Object} Updated settings
+ */
+const updateSettings = async (data) => {
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
+
+  if (data.platform_fee_value !== undefined) {
+    updates.push(`platform_fee_value = $${paramIndex++}`);
+    values.push(data.platform_fee_value);
+  }
+  if (data.tax_percentage !== undefined) {
+    updates.push(`tax_percentage = $${paramIndex++}`);
+    values.push(data.tax_percentage);
+  }
+
+  if (updates.length === 0) {
+    throw new AppError('No valid fields to update', 400);
+  }
+
+  updates.push(`updated_at = NOW()`);
+
+  const result = await query(
+    `UPDATE admin_settings SET ${updates.join(', ')} RETURNING *`,
+    values
+  );
+
+  return result.rows[0];
+};
+
 module.exports = {
   getAllUsers,
   getUserDetails,
@@ -687,4 +826,6 @@ module.exports = {
   getDashboardStats,
   getRequestsReport,
   getMechanicPerformance,
+  getSettings,
+  updateSettings,
 };

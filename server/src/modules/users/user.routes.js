@@ -27,6 +27,8 @@ const {
   updateProfileSchema,
   addVehicleSchema,
   updateVehicleSchema,
+  emergencyContactSchema,
+  preferencesSchema,
 } = require('./user.validation');
 
 // ---- All routes require authentication ----
@@ -42,5 +44,15 @@ router.post('/vehicles', validate(addVehicleSchema), userController.addVehicle);
 router.get('/vehicles/:id', userController.getSingleVehicle);
 router.patch('/vehicles/:id', validate(updateVehicleSchema), userController.updateVehicle);
 router.delete('/vehicles/:id', userController.deleteVehicle);
+router.patch('/vehicles/:id/default', userController.setDefaultVehicle);
+
+// ---- Emergency Contact Routes ----
+router.get('/emergency-contact', userController.getEmergencyContact);
+router.post('/emergency-contact', validate(emergencyContactSchema), userController.saveEmergencyContact);
+router.patch('/emergency-contact', validate(emergencyContactSchema), userController.saveEmergencyContact);
+
+// ---- Preferences Routes ----
+router.get('/preferences', userController.getPreferences);
+router.patch('/preferences', validate(preferencesSchema), userController.updatePreferences);
 
 module.exports = router;

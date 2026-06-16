@@ -52,7 +52,7 @@ const getUserServiceHistory = async (userId, filters) => {
   const historyResult = await query(
     `SELECT
       sr.id, sr.status, sr.breakdown_lat, sr.breakdown_lng, sr.breakdown_address,
-      sr.estimated_price, sr.final_price, sr.created_at, sr.completed_at, sr.cancelled_at,
+      COALESCE(sr.final_price, i.total_amount) AS final_price, sr.created_at, sr.completed_at, sr.cancelled_at,
       v.make AS vehicle_make, v.model AS vehicle_model, v.license_plate AS vehicle_license_plate,
       sc.name AS category_name, sc.icon AS category_icon,
       m.id AS mechanic_id, m.full_name AS mechanic_name, m.profile_picture AS mechanic_profile_picture,
@@ -62,6 +62,7 @@ const getUserServiceHistory = async (userId, filters) => {
     JOIN service_categories sc ON sc.id = sr.category_id
     LEFT JOIN users m ON m.id = sr.mechanic_id
     LEFT JOIN reviews r ON r.request_id = sr.id
+    LEFT JOIN invoices i ON i.request_id = sr.id
     ${whereClause}
     ORDER BY sr.created_at DESC
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -110,7 +111,7 @@ const getMechanicJobHistory = async (mechanicId, filters) => {
   // Get paginated history
   const historyResult = await query(
     `SELECT
-      sr.id, sr.status, sr.breakdown_address, sr.estimated_price, sr.final_price,
+      sr.id, sr.status, sr.breakdown_address, COALESCE(sr.final_price, i.total_amount) AS final_price,
       sr.created_at, sr.completed_at, sr.cancelled_at,
       u.id AS user_id, u.full_name AS user_name, u.profile_picture AS user_profile_picture,
       v.make AS vehicle_make, v.model AS vehicle_model,
@@ -121,6 +122,7 @@ const getMechanicJobHistory = async (mechanicId, filters) => {
     JOIN vehicles v ON v.id = sr.vehicle_id
     JOIN service_categories sc ON sc.id = sr.category_id
     LEFT JOIN reviews r ON r.request_id = sr.id
+    LEFT JOIN invoices i ON i.request_id = sr.id
     ${whereClause}
     ORDER BY sr.created_at DESC
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -142,11 +144,12 @@ const getServiceSummary = async (userId, role) => {
     const summaryResult = await query(
       `SELECT
         COUNT(*)::integer AS total_requests,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END)::integer AS completed,
-        COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::integer AS cancelled,
-        SUM(CASE WHEN status = 'completed' THEN final_price ELSE 0 END)::numeric AS total_amount_spent
-      FROM service_requests
-      WHERE user_id = $1`,
+        COUNT(CASE WHEN sr.status = 'completed' THEN 1 END)::integer AS completed,
+        COUNT(CASE WHEN sr.status = 'cancelled' THEN 1 END)::integer AS cancelled,
+        SUM(CASE WHEN sr.status = 'completed' THEN COALESCE(sr.final_price, i.total_amount) ELSE 0 END)::numeric AS total_amount_spent
+      FROM service_requests sr
+      LEFT JOIN invoices i ON i.request_id = sr.id
+      WHERE sr.user_id = $1`,
       [userId]
     );
 
@@ -172,11 +175,12 @@ const getServiceSummary = async (userId, role) => {
     const summaryResult = await query(
       `SELECT
         COUNT(*)::integer AS total_jobs,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END)::integer AS completed_jobs,
-        COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::integer AS cancelled_jobs,
-        SUM(CASE WHEN status = 'completed' THEN final_price ELSE 0 END)::numeric AS total_earnings
-      FROM service_requests
-      WHERE mechanic_id = $1`,
+        COUNT(CASE WHEN sr.status = 'completed' THEN 1 END)::integer AS completed_jobs,
+        COUNT(CASE WHEN sr.status = 'cancelled' THEN 1 END)::integer AS cancelled_jobs,
+        SUM(CASE WHEN sr.status = 'completed' THEN COALESCE(sr.final_price, i.total_amount) ELSE 0 END)::numeric AS total_earnings
+      FROM service_requests sr
+      LEFT JOIN invoices i ON i.request_id = sr.id
+      WHERE sr.mechanic_id = $1`,
       [userId]
     );
 

@@ -3,16 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { GoogleMap, Marker, DirectionsRenderer } from '@react-google-maps/api';
 import { FiPhoneCall, FiX, FiCheckCircle, FiClock, FiMapPin, FiNavigation } from 'react-icons/fi';
+
+import { submitPaymentThunk } from '../../../store/requestStore';
+import { FiUpload } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 
 import { 
   fetchActiveRequestThunk, 
   cancelRequestThunk,
-  updateNearbyMechanicLocation 
+  updateNearbyMechanicLocation,
+  setMechanicLocation
 } from '../../../store/requestStore';
 import useSocket from '../../../hooks/useSocket';
-import { calculateDistance } from '../../../utils/geolocation';
+import { calculateDistance, getCurrentLocation } from '../../../utils/geolocation';
+import { getSocket } from '../../../socket/socketClient';
 import axiosInst from '../../../api/axios';
 import PageTransition from '../../../components/common/PageTransition';
 
@@ -29,8 +34,9 @@ const mapOptions = {
   ]
 };
 
-const STEPS = ['pending', 'accepted', 'en_route', 'arrived', 'in_progress', 'completed'];
-const STEP_LABELS = ['Requested', 'Accepted', 'En Route', 'Arrived', 'In Progress', 'Completed'];
+const STEPS = ['pending', 'accepted', 'en_route', 'arrived', 'in_progress', 'awaiting_payment', 'payment_verification', 'completed'];
+const STEP_LABELS = ['Requested', 'Accepted', 'En Route', 'Arrived', 'In Progress', 'Payment', 'Verification', 'Completed'];
+
 
 const TrackingPage = () => {
   const dispatch = useDispatch();
@@ -47,12 +53,37 @@ const TrackingPage = () => {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [reviewScore, setReviewScore] = useState(5);
   const [reviewText, setReviewText] = useState('');
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [rejectedRequestId, setRejectedRequestId] = useState(null);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [submittingPayment, setSubmittingPayment] = useState(false);
+  const [initialFetchDone, setInitialFetchDone] = useState(false);
+
+  const handlePaymentSubmit = async () => {
+    if (paymentMethod === 'online' && !receiptFile) return toast.error('Please upload a payment receipt');
+    setSubmittingPayment(true);
+    try {
+      await dispatch(submitPaymentThunk({ requestId: activeRequest.id, paymentMethod, receiptFile })).unwrap();
+      toast.success(paymentMethod === 'cash' ? 'Cash payment recorded' : 'Receipt uploaded for verification');
+    } catch (err) {
+      toast.error('Failed to submit payment details');
+    } finally {
+      setSubmittingPayment(false);
+    }
+  };
+
 
   const mapRef = useRef(null);
 
   // Load Request
   useEffect(() => {
-    dispatch(fetchActiveRequestThunk());
+    dispatch(fetchActiveRequestThunk()).finally(() => {
+      setInitialFetchDone(true);
+    });
   }, [dispatch]);
 
   // Load Mechanic details & start tracking
@@ -60,11 +91,12 @@ const TrackingPage = () => {
     if (activeRequest && activeRequest.mechanic_id) {
       // Fetch mechanic details
       axiosInst.get(`/search/mechanic/${activeRequest.mechanic_id}`)
-        .then(res => setMechanicDetails(res.data.data.mechanic))
+        .then(res => setMechanicDetails(res.data?.mechanic || res.data))
         .catch(err => console.error(err));
 
       // Start socket tracking
       watchMechanic(activeRequest.mechanic_id, activeRequest.id, (location) => {
+        dispatch(setMechanicLocation(location));
         dispatch(updateNearbyMechanicLocation({ 
           mechanicId: activeRequest.mechanic_id, 
           ...location 
@@ -76,6 +108,59 @@ const TrackingPage = () => {
       if (activeRequest) stopWatchingMechanic(activeRequest.id);
     };
   }, [activeRequest?.mechanic_id, activeRequest?.id, watchMechanic, stopWatchingMechanic, dispatch]);
+
+  // Listen for mechanic rejection
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleRejection = (data) => {
+      setRejectedRequestId(data.requestId);
+      setShowFeedbackModal(true);
+      toast.error(data.message || 'Mechanic declined your request.');
+    };
+
+    socket.on('request:rejected', handleRejection);
+    return () => {
+      socket.off('request:rejected', handleRejection);
+    };
+  }, [dispatch, navigate]);
+
+  // Listen for mechanic requesting exact location
+  const [showLocationRequest, setShowLocationRequest] = useState(false);
+  
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleLocationRequest = () => {
+      setShowLocationRequest(true);
+    };
+
+    socket.on('mechanic:request_location', handleLocationRequest);
+    return () => {
+      socket.off('mechanic:request_location', handleLocationRequest);
+    };
+  }, []);
+
+  const handleShareExactLocation = async () => {
+    try {
+      const loc = await getCurrentLocation();
+      // Send to backend
+      await axiosInst.patch(`/requests/${activeRequest.id}/location`, { lat: loc.lat, lng: loc.lng });
+      
+      // Emit via socket
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('user:share_location', { requestId: activeRequest.id, lat: loc.lat, lng: loc.lng });
+      }
+      toast.success('Location shared with mechanic!');
+      setShowLocationRequest(false);
+      dispatch(fetchActiveRequestThunk());
+    } catch (err) {
+      toast.error('Failed to get location. Please check browser permissions.');
+    }
+  };
 
   // Routing and ETA calculation
   useEffect(() => {
@@ -93,8 +178,8 @@ const TrackingPage = () => {
       
       directionsService.route(
         {
-          origin: { lat: mechanicLocation.lat, lng: mechanicLocation.lng },
-          destination: { lat: userLocation.lat, lng: userLocation.lng },
+          origin: { lat: parseFloat(mechanicLocation.lat), lng: parseFloat(mechanicLocation.lng) },
+          destination: { lat: parseFloat(userLocation.lat), lng: parseFloat(userLocation.lng) },
           travelMode: window.google.maps.TravelMode.DRIVING,
         },
         (result, status) => {
@@ -115,8 +200,8 @@ const TrackingPage = () => {
   useEffect(() => {
     if (mapRef.current && userLocation && mechanicLocation) {
       const bounds = new window.google.maps.LatLngBounds();
-      bounds.extend({ lat: userLocation.lat, lng: userLocation.lng });
-      bounds.extend({ lat: mechanicLocation.lat, lng: mechanicLocation.lng });
+      bounds.extend({ lat: parseFloat(userLocation.lat), lng: parseFloat(userLocation.lng) });
+      bounds.extend({ lat: parseFloat(mechanicLocation.lat), lng: parseFloat(mechanicLocation.lng) });
       mapRef.current.fitBounds(bounds, { top: 50, bottom: 300, left: 50, right: 50 });
     }
   }, [mapRef.current, userLocation, mechanicLocation, directions]);
@@ -150,7 +235,25 @@ const TrackingPage = () => {
     }
   };
 
-  if (!activeRequest) {
+  const handleSubmitFeedback = async () => {
+    if (!feedbackText.trim()) return toast.error('Please enter feedback');
+    setSubmittingFeedback(true);
+    try {
+      await axiosInst.post(`/requests/${rejectedRequestId}/feedback`, { feedback: feedbackText });
+      toast.success('Feedback submitted. Thank you!');
+      setShowFeedbackModal(false);
+      setRejectedRequestId(null);
+      setFeedbackText('');
+      dispatch(fetchActiveRequestThunk());
+      navigate('/dashboard/request');
+    } catch (err) {
+      toast.error('Failed to submit feedback');
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
+
+  if (!initialFetchDone || (!activeRequest && !initialFetchDone)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
         <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -159,7 +262,69 @@ const TrackingPage = () => {
     );
   }
 
+  if (initialFetchDone && !activeRequest) {
+    navigate('/dashboard');
+    return null;
+  }
+
   // If completed
+  
+  if (activeRequest.status === 'awaiting_payment' || activeRequest.status === 'payment_verification') {
+    return (
+      <PageTransition>
+        <div className="max-w-md mx-auto pt-8 px-4 text-center">
+          <div className="w-24 h-24 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-6">
+            <FiCheckCircle size={48} />
+          </div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">Service Done</h2>
+          <p className="text-gray-600 mb-8">Mechanic has completed the work. Please process the payment.</p>
+
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6 text-left">
+            <h3 className="font-bold text-lg mb-4 text-center">Payment Details</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+              <select 
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                disabled={activeRequest.status === 'payment_verification'}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="cash">Cash</option>
+                <option value="online">Online / UPI</option>
+              </select>
+            </div>
+            
+            {paymentMethod === 'online' && activeRequest.status === 'awaiting_payment' && (
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Upload Receipt Screenshot</label>
+                <input 
+                  type="file" 
+                  accept="image/*,.pdf"
+                  onChange={(e) => setReceiptFile(e.target[0] || e.target.files[0])}
+                  className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-primary hover:file:bg-orange-100"
+                />
+              </div>
+            )}
+
+            {activeRequest.status === 'payment_verification' ? (
+              <div className="bg-blue-50 text-blue-700 p-4 rounded-xl text-center text-sm font-medium">
+                Wait, Mechanic is verifying your payment receipt...
+              </div>
+            ) : (
+              <button 
+                onClick={handlePaymentSubmit}
+                disabled={submittingPayment}
+                className="w-full bg-primary hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-colors"
+              >
+                {submittingPayment ? 'Submitting...' : 'Submit Payment Info'}
+              </button>
+            )}
+          </div>
+        </div>
+      </PageTransition>
+    );
+  }
+
   if (activeRequest.status === 'completed') {
     return (
       <PageTransition>
@@ -271,9 +436,9 @@ const TrackingPage = () => {
               {/* User Location */}
               {userLocation && (
                 <Marker 
-                  position={{ lat: userLocation.lat, lng: userLocation.lng }}
+                  position={{ lat: parseFloat(userLocation.lat), lng: parseFloat(userLocation.lng) }}
                   icon={{
-                    path: window.google.maps.SymbolPath.CIRCLE,
+                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
                     fillColor: '#007BFF',
                     fillOpacity: 1,
                     strokeWeight: 3,
@@ -287,7 +452,7 @@ const TrackingPage = () => {
               {/* Mechanic Location (Animated via continuous updates) */}
               {mechanicLocation && (
                 <Marker 
-                  position={{ lat: mechanicLocation.lat, lng: mechanicLocation.lng }}
+                  position={{ lat: parseFloat(mechanicLocation.lat), lng: parseFloat(mechanicLocation.lng) }}
                   icon={{
                     path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
                     fillColor: '#FF8A00',
@@ -295,7 +460,7 @@ const TrackingPage = () => {
                     strokeWeight: 2,
                     strokeColor: '#FFFFFF',
                     scale: 1.5,
-                    anchor: new window.google.maps.Point(12, 24)
+                    anchor: window.google ? new window.google.maps.Point(12, 24) : null
                   }}
                   zIndex={2}
                 />
@@ -321,10 +486,10 @@ const TrackingPage = () => {
           {/* Floating Recentering Button */}
           <button 
             onClick={() => {
-              if (mapRef.current && userLocation && mechanicLocation) {
+              if (mapRef.current && userLocation && mechanicLocation && window.google) {
                 const bounds = new window.google.maps.LatLngBounds();
-                bounds.extend({ lat: userLocation.lat, lng: userLocation.lng });
-                bounds.extend({ lat: mechanicLocation.lat, lng: mechanicLocation.lng });
+                bounds.extend({ lat: parseFloat(userLocation.lat), lng: parseFloat(userLocation.lng) });
+                bounds.extend({ lat: parseFloat(mechanicLocation.lat), lng: parseFloat(mechanicLocation.lng) });
                 mapRef.current.fitBounds(bounds, { top: 50, bottom: 300, left: 50, right: 50 });
               }
             }}
@@ -382,22 +547,36 @@ const TrackingPage = () => {
             </div>
           </div>
 
-          <div className="flex gap-3">
-            {mechanicDetails && (
-              <a 
-                href={`tel:${mechanicDetails.phone}`}
-                className="flex-[2] bg-green-500 hover:bg-green-600 text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-lg shadow-md shadow-green-500/20"
-              >
-                <FiPhoneCall size={20} /> Call Mechanic
-              </a>
-            )}
-            
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-3">
+              {mechanicDetails && (
+                <a 
+                  href={`tel:${mechanicDetails.phone}`}
+                  className="flex-[1] bg-green-500 hover:bg-green-600 text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-md shadow-green-500/20"
+                >
+                  <FiPhoneCall size={20} /> Call
+                </a>
+              )}
+              
+              {mechanicLocation && (
+                <button
+                  onClick={() => {
+                    const url = `https://www.google.com/maps/dir/?api=1&destination=${mechanicLocation.lat},${mechanicLocation.lng}&travelmode=driving`;
+                    window.open(url, '_blank');
+                  }}
+                  className="flex-[2] bg-blue-500 hover:bg-blue-600 text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 shadow-md shadow-blue-500/20"
+                >
+                  <FiMapPin size={20} /> Navigate to Shop
+                </button>
+              )}
+            </div>
+
             <button 
               onClick={() => setShowCancelConfirm(true)}
               disabled={['arrived', 'in_progress', 'completed'].includes(activeRequest.status)}
-              className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold py-3.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold py-3.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Cancel
+              Cancel Request
             </button>
           </div>
         </div>
@@ -441,6 +620,95 @@ const TrackingPage = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Feedback Modal for Rejection */}
+      <AnimatePresence>
+        {showFeedbackModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 w-full max-w-sm relative z-10 shadow-2xl"
+            >
+              <div className="w-12 h-12 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center mb-4">
+                <FiX size={24} />
+              </div>
+              <h3 className="font-bold text-xl mb-2 text-gray-900">Request Declined</h3>
+              <p className="text-gray-600 mb-4 text-sm">
+                The mechanic declined your request. Could you tell us what happened? (e.g., didn't answer call, asked for too much money, too far)
+              </p>
+              <textarea
+                value={feedbackText}
+                onChange={(e) => setFeedbackText(e.target.value)}
+                placeholder="Write your feedback here..."
+                className="w-full border border-gray-200 rounded-xl p-3 mb-4 min-h-[100px] outline-none focus:border-primary focus:ring-1 focus:ring-primary text-sm"
+              ></textarea>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => {
+                    setShowFeedbackModal(false);
+                    dispatch(fetchActiveRequestThunk());
+                    navigate('/dashboard/request');
+                  }}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 rounded-xl transition-colors text-sm"
+                >
+                  Skip
+                </button>
+                <button 
+                  onClick={handleSubmitFeedback}
+                  disabled={submittingFeedback}
+                  className="flex-1 bg-primary hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-colors shadow-md shadow-primary/20 text-sm flex justify-center items-center"
+                >
+                  {submittingFeedback ? 'Submitting...' : 'Submit'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Location Request Modal */}
+      <AnimatePresence>
+        {showLocationRequest && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setShowLocationRequest(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 w-full max-w-sm relative z-10 shadow-2xl"
+            >
+              <div className="w-12 h-12 bg-blue-100 text-blue-500 rounded-full flex items-center justify-center mb-4">
+                <FiMapPin size={24} />
+              </div>
+              <h3 className="font-bold text-xl mb-2 text-gray-900">Mechanic needs your location</h3>
+              <p className="text-gray-600 mb-6 text-sm">
+                The mechanic is requesting your exact GPS location to reach you more easily. Do you want to share your live location?
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowLocationRequest(false)}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 rounded-xl transition-colors"
+                >
+                  Decline
+                </button>
+                <button 
+                  onClick={handleShareExactLocation}
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl transition-colors shadow-md shadow-blue-500/20"
+                >
+                  Share Location
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </PageTransition>
   );
 };

@@ -27,10 +27,13 @@ const emitDashboardUpdate = async () => {
       }
     }
     
+    const { sendToAdmin, getConnectedUsers } = require('../socket/socketManager');
+    
     // Send to all connected admins
     sendToAdmin(EVENTS.DASHBOARD_STATS_UPDATE || 'admin:stats:update', {
       ...stats,
       onlineMechanics,
+      online_users: getConnectedUsers(),
       activeRequests: stats.active_requests,
       timestamp: new Date()
     });

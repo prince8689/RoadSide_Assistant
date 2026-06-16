@@ -13,7 +13,7 @@ const EarningsPage = () => {
   useEffect(() => {
     fetchStats();
     getJobHistory().then(res => {
-      setHistory(res.data.data || []);
+      setHistory(res.data?.history || res.data || []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -51,7 +51,7 @@ const EarningsPage = () => {
           <div className="text-3xl font-bold text-dark">₹{
             completedJobs
               .filter(j => new Date(j.created_at).getMonth() === new Date().getMonth())
-              .reduce((sum, j) => sum + Number(j.estimated_price || 0), 0)
+              .reduce((sum, j) => sum + Number(j.final_price || 0), 0)
           }</div>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
@@ -106,7 +106,7 @@ const EarningsPage = () => {
                 <div className="flex items-center justify-between w-full md:w-auto gap-8">
                   <div className="text-right">
                     <span className="text-sm text-muted block">Earned</span>
-                    <span className="text-xl font-bold text-green-600">₹{job.estimated_price}</span>
+                    <span className="text-xl font-bold text-green-600">₹{job.final_price}</span>
                   </div>
                   {job.review && (
                     <div className="text-right">

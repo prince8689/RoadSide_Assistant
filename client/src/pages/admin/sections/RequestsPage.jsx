@@ -5,6 +5,7 @@ import DataTable from '../../../components/admin/DataTable';
 import StatusBadge from '../../../components/admin/StatusBadge';
 import Pagination from '../../../components/admin/Pagination';
 import Modal from '../../../components/admin/Modal';
+import { getRequestDetails } from '../../../api/adminApi';
 
 const RequestsPage = () => {
   const { requests, pagination, fetchRequests, isLoading } = useAdminStore();
@@ -50,7 +51,7 @@ const RequestsPage = () => {
     { 
       header: 'Amount', 
       accessor: 'price',
-      render: (row) => <span className="font-bold">₹{row.estimated_price}</span>
+      render: (row) => <span className="font-bold">₹{row.final_price || '-'}</span>
     },
     { 
       header: 'Date', 
@@ -91,7 +92,16 @@ const RequestsPage = () => {
           columns={columns} 
           data={requests} 
           isLoading={isLoading} 
-          onRowClick={(row) => { setSelectedReq(row); setIsModalOpen(true); }}
+          onRowClick={async (row) => { 
+            setSelectedReq(row); 
+            setIsModalOpen(true); 
+            try {
+              const res = await getRequestDetails(row.id);
+              setSelectedReq(res.data.request);
+            } catch (err) {
+              console.error(err);
+            }
+          }}
         />
         <Pagination currentPage={pagination.page || 1} totalPages={pagination.totalPages || 1} onPageChange={setPage} />
       </div>
@@ -111,8 +121,8 @@ const RequestsPage = () => {
                   <span className="text-sm font-medium text-dark">{selectedReq.address || 'GPS Location Only'}</span>
                 </div>
                 <div className="flex items-center justify-between pt-2">
-                  <span className="text-gray-500 text-sm">Est. Price</span>
-                  <span className="text-xl font-bold text-primary">₹{selectedReq.estimated_price}</span>
+                  <span className="text-gray-500 text-sm">Final Price</span>
+                  <span className="text-xl font-bold text-primary">₹{selectedReq.final_price || '-'}</span>
                 </div>
               </div>
 
@@ -145,6 +155,44 @@ const RequestsPage = () => {
                   )}
                 </div>
               </div>
+
+              {selectedReq.user_feedback && (
+                <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl mt-4">
+                  <h4 className="text-xs font-bold text-orange-800 uppercase mb-2">User Feedback (Failed Interaction)</h4>
+                  <p className="text-sm text-orange-900 italic">"{selectedReq.user_feedback}"</p>
+                </div>
+              )}
+
+              {/* Invoice Section */}
+              {selectedReq.invoice && (
+                <div className="bg-green-50 border border-green-100 p-5 rounded-xl mt-4 shadow-sm">
+                  <h4 className="text-xs font-bold text-green-800 uppercase mb-3 border-b border-green-200 pb-2">Invoice Details</h4>
+                  <div className="space-y-2 text-sm text-green-900">
+                    <div className="flex justify-between">
+                      <span className="font-semibold text-green-700">Base Fare & Distance</span>
+                      <span className="font-bold">₹{selectedReq.invoice.subtotal}</span>
+                    </div>
+                    {selectedReq.invoice.items?.map(item => (
+                      <div key={item.id} className="flex justify-between text-xs text-green-800 pl-3 py-0.5 opacity-90">
+                        <span>• {item.item_name}</span>
+                        <span>₹{item.amount}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between pt-1">
+                      <span className="font-semibold text-green-700">Platform Fee</span>
+                      <span className="font-bold">₹{selectedReq.invoice.platform_fee}</span>
+                    </div>
+                    <div className="flex justify-between pb-1">
+                      <span className="font-semibold text-green-700">Tax</span>
+                      <span className="font-bold">₹{selectedReq.invoice.tax_amount}</span>
+                    </div>
+                    <div className="pt-3 mt-2 border-t border-green-200 flex justify-between items-center font-black text-green-800 text-lg">
+                      <span>Total Billed</span>
+                      <span>₹{selectedReq.invoice.total_amount}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Timeline */}

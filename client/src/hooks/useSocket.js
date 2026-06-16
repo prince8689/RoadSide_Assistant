@@ -1,11 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { getSocket } from '../socket/socketClient';
 import useNotificationStore from '../store/notificationStore';
 import { useSelector, useDispatch } from 'react-redux';
-import { updateActiveRequest, updateNearbyMechanicLocation } from '../store/requestStore';
+import { updateActiveRequest, updateNearbyMechanicLocation, fetchMyRequestsThunk, fetchActiveRequestThunk } from '../store/requestStore';
 import useMechanicStore from '../store/mechanicStore';
 import useAdminStore from '../store/adminStore';
-import { useSelector } from 'react-redux';
+
 import { toast } from 'react-hot-toast';
 
 const useSocket = () => {
@@ -30,9 +30,23 @@ const useSocket = () => {
     });
 
     // Request status updated
-    socket.on('request:status-update', (data) => {
+    socket.on('request:status:updated', (data) => {
       dispatch(updateActiveRequest(data));
-      // Custom notifications can be triggered here
+      // Refresh requests list in case user is on My Requests page
+      if (user?.role === 'user') {
+        dispatch(fetchMyRequestsThunk());
+        dispatch(fetchActiveRequestThunk());
+      }
+    });
+
+    // Mechanic rejected user request
+    socket.on('request:rejected', (data) => {
+      // toast.error(data.message || 'Mechanic declined your request.'); // handled in TrackingPage, but we want it globally if we're not on TrackingPage. Actually, let's keep the toast here to ensure it always shows.
+      if (window.location.pathname !== '/dashboard/tracking') {
+        toast.error(data.message || 'Mechanic declined your request.');
+      }
+      dispatch(fetchMyRequestsThunk());
+      dispatch(fetchActiveRequestThunk());
     });
 
     socket.on('mechanic:location-update', (data) => {
@@ -73,6 +87,7 @@ const useSocket = () => {
       socket.off('notification:new');
       socket.off('notification:unread_count');
       socket.off('request:status:updated');
+      socket.off('request:rejected');
       socket.off('mechanic:location:receive');
       socket.off('request:new');
       socket.off('request:cancelled');

@@ -39,6 +39,16 @@ const NotificationMessages = {
     message: `Your service request has been cancelled. Reason: ${reason}`,
     type: 'request_update'
   }),
+  REQUEST_COMPLETED: (message) => ({
+    title: 'Payment and Service Completed',
+    message: message || 'Your service and payment have been successfully completed.',
+    type: 'request_update'
+  }),
+  REQUEST_STATUS_UPDATE: (message) => ({
+    title: 'Service Update',
+    message: message || 'Your service request status has been updated.',
+    type: 'request_update'
+  }),
   NEW_REQUEST_NEARBY: (serviceType, distance) => ({
     title: 'New Service Request Nearby',
     message: `A ${serviceType} request is available ${distance}km away from you.`,

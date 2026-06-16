@@ -11,7 +11,7 @@ const useNotificationStore = create((set, get) => ({
     try {
       const res = await getNotifications();
       set({
-        notifications: res.data.data?.notifications || res.data.notifications || [],
+        notifications: res.data?.notifications || [],
         isLoading: false
       });
     } catch { set({ isLoading: false }); }
@@ -20,14 +20,14 @@ const useNotificationStore = create((set, get) => ({
   fetchUnreadCount: async () => {
     try {
       const res = await getUnreadCount();
-      set({ unreadCount: res.data.data?.unread_count || 0 });
+      set({ unreadCount: res.data?.unread_count || 0 });
     } catch {}
   },
 
   markAllAsRead: async () => {
     try {
       await markAllRead();
-      set({ unreadCount: 0 });
+      set({ unreadCount: 0, notifications: [] });
     } catch {}
   },
 

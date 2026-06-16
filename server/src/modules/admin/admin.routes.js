@@ -33,6 +33,7 @@ const {
   updateUserStatusSchema,
   createCategorySchema,
   updateCategorySchema,
+  updateAdminSettingsSchema,
 } = require('./admin.validation');
 
 // ---- All admin routes require authentication + admin role ----
@@ -79,5 +80,13 @@ router.patch(
 // ---- Reports ----
 router.get('/reports/requests', adminController.getRequestsReport);
 router.get('/reports/mechanics', adminController.getMechanicPerformance);
+
+// ---- Settings ----
+router.get('/settings', adminController.getSettings);
+router.patch(
+  '/settings',
+  validate(updateAdminSettingsSchema),
+  adminController.updateSettings
+);
 
 module.exports = router;

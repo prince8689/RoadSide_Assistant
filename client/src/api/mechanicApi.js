@@ -16,3 +16,7 @@ export const getMechanicStats = () => api.get('/mechanics/stats');
 export const getJobHistory  = () => api.get('/history');
 export const getMechanicReviews = (id) =>
   api.get(`/reviews/mechanic/${id}`);
+export const getMyServices = () => api.get('/mechanics/services');
+export const updateMyServices = (services) => api.put('/mechanics/services', { services });
+export const createServiceCategory = (data) => api.post('/services', data);
+export const generateInvoice = (requestId, items) => api.post(`/billing/request/${requestId}/generate`, { items });

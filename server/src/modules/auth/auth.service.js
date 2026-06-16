@@ -122,13 +122,10 @@ const generateAndSendOTP = async (email, name, purpose = 'register') => {
 
   logger.info(`OTP generated for ${email} (purpose: ${purpose})`);
 
-  // 4. Send OTP email — wrapped in try/catch so failure doesn't break the flow
-  try {
-    await sendOTP(email, otp, name || 'User');
-  } catch (emailError) {
+  // 4. Send OTP email — non-blocking (fire and forget) so it's much faster
+  sendOTP(email, otp, name || 'User').catch((emailError) => {
     logger.error(`Failed to send OTP email to ${email}: ${emailError.message}`);
-    // Don't throw — OTP is saved in DB, user can request resend
-  }
+  });
 
   return { message: `OTP sent successfully to ${email}` };
 };
@@ -150,7 +147,7 @@ const generateAndSendOTP = async (email, name, purpose = 'register') => {
  * @returns {Promise<{verified: boolean}>} Verification result
  * @throws {AppError} If OTP is invalid or expired
  */
-const verifyOTP = async (email, otp) => {
+const verifyOTP = async (email, otp, deleteAfter = true) => {
   // 1. Check for valid, non-expired OTP
   const result = await query(
     'SELECT * FROM otps WHERE email = $1 AND otp = $2 AND expires_at > NOW()',
@@ -162,7 +159,9 @@ const verifyOTP = async (email, otp) => {
   }
 
   // 2. Delete all OTPs for this email (one-time use)
-  await query('DELETE FROM otps WHERE email = $1', [email]);
+  if (deleteAfter) {
+    await query('DELETE FROM otps WHERE email = $1', [email]);
+  }
 
   logger.info(`OTP verified successfully for ${email}`);
 
@@ -229,8 +228,8 @@ const registerUser = async (userData) => {
     throw new AppError('OTP is required for registration', 400);
   }
 
-  // 1. Verify OTP from database
-  await verifyOTP(email, otp);
+  // 1. Verify OTP from database (without deleting it immediately)
+  await verifyOTP(email, otp, false);
 
   // 2. Check if email already exists (double check just in case)
   const emailCheck = await query(
@@ -252,6 +251,20 @@ const registerUser = async (userData) => {
     }
   }
 
+  // 3.5 Check Aadhar Uniqueness for mechanics
+  if (role === 'mechanic' && userData.documents) {
+    const aadharDoc = userData.documents.find(d => d.type === 'aadhar');
+    if (aadharDoc && aadharDoc.number) {
+      const aadharCheck = await query(
+        `SELECT id FROM mechanic_profiles WHERE documents @> $1::jsonb`,
+        [JSON.stringify([{ type: 'aadhar', number: aadharDoc.number }])]
+      );
+      if (aadharCheck.rows.length > 0) {
+        throw new AppError('This Aadhar Number is already registered with another mechanic', 409);
+      }
+    }
+  }
+
   // 4. Hash password with bcrypt
   const salt = await bcrypt.genSalt(SALT_ROUNDS);
   const password_hash = await bcrypt.hash(password, salt);
@@ -268,10 +281,17 @@ const registerUser = async (userData) => {
 
   // 6. If mechanic, create mechanic profile
   if (user.role === 'mechanic') {
+    const { business_name, experience_years, specializations, documents } = userData;
     await query(
-      `INSERT INTO mechanic_profiles (user_id)
-       VALUES ($1)`,
-      [user.id]
+      `INSERT INTO mechanic_profiles (user_id, business_name, experience_years, specializations, documents)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        user.id, 
+        business_name || null, 
+        experience_years || 0, 
+        specializations || [],
+        documents ? JSON.stringify(documents) : JSON.stringify([])
+      ]
     );
   }
 
@@ -289,6 +309,9 @@ const registerUser = async (userData) => {
 
   // Update Admin Dashboard
   emitDashboardUpdate();
+
+  // Clean up OTP after successful registration
+  await query('DELETE FROM otps WHERE email = $1', [email]);
 
   // 9. Return user + tokens (password NOT included — RETURNING clause excludes it)
   return {
@@ -319,7 +342,7 @@ const registerUser = async (userData) => {
 const loginUser = async (email, password) => {
   // 1. Find user by email
   const result = await query(
-    `SELECT id, full_name, email, phone, password_hash, role, profile_picture, is_active, created_at
+    `SELECT id, full_name, email, phone, password_hash, role, profile_picture, is_active, created_at, is_banned, suspension_end_date
      FROM users WHERE email = $1`,
     [email]
   );
@@ -333,6 +356,14 @@ const loginUser = async (email, password) => {
   // 2. Check if account is active
   if (!user.is_active) {
     throw new AppError('Your account has been deactivated. Please contact support.', 403);
+  }
+
+  if (user.is_banned) {
+    throw new AppError('Your account has been permanently banned due to multiple violations.', 403);
+  }
+
+  if (user.suspension_end_date && new Date(user.suspension_end_date) > new Date()) {
+    throw new AppError(`Your account is suspended until ${new Date(user.suspension_end_date).toLocaleDateString()}.`, 403);
   }
 
   // 3. Compare password with bcrypt hash
@@ -369,7 +400,7 @@ const loginUser = async (email, password) => {
  */
 const getUserById = async (id) => {
   const result = await query(
-    `SELECT id, full_name, email, phone, role, profile_picture, is_active, created_at, updated_at
+    `SELECT id, full_name, email, phone, role, profile_picture, is_active, created_at, updated_at, is_banned, suspension_end_date
      FROM users WHERE id = $1`,
     [id]
   );
@@ -456,6 +487,74 @@ const revokeRefreshToken = async (userId) => {
   }
 };
 
+// ============================================
+// RESET PASSWORD
+// ============================================
+
+/**
+ * Reset a user's password using an OTP.
+ *
+ * Steps:
+ * 1. Verify OTP from database
+ * 2. Hash new password with bcrypt
+ * 3. Update password_hash in database
+ *
+ * @param {string} email - User's email
+ * @param {string} otp - The 6-digit OTP
+ * @param {string} newPassword - The new plain text password
+ */
+const resetPasswordUser = async (email, otp, newPassword) => {
+  // 1. Verify OTP from database
+  await verifyOTP(email, otp);
+
+  // 2. Hash new password with bcrypt
+  const salt = await bcrypt.genSalt(SALT_ROUNDS);
+  const password_hash = await bcrypt.hash(newPassword, salt);
+
+  // 3. Update password in database
+  const result = await query(
+    'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE email = $2 RETURNING id',
+    [password_hash, email]
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError('User not found', 404);
+  }
+
+  logger.info(`Password reset successfully for ${email}`);
+};
+
+// ============================================
+// CHANGE PASSWORD
+// ============================================
+
+/**
+ * Change user password using current password.
+ *
+ * @param {string} userId - User UUID
+ * @param {string} currentPassword - User's current plain text password
+ * @param {string} newPassword - The new plain text password
+ */
+const changePasswordUser = async (userId, currentPassword, newPassword) => {
+  const result = await query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+  if (result.rows.length === 0) {
+    throw new AppError('User not found', 404);
+  }
+
+  const isPasswordValid = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
+  if (!isPasswordValid) {
+    throw new AppError('Invalid current password', 401);
+  }
+
+  const salt = await bcrypt.genSalt(SALT_ROUNDS);
+  const password_hash = await bcrypt.hash(newPassword, salt);
+
+  await query(
+    'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+    [password_hash, userId]
+  );
+};
+
 module.exports = {
   generateAndSendOTP,
   verifyOTP,
@@ -465,4 +564,6 @@ module.exports = {
   getUserById,
   refreshAccessToken,
   revokeRefreshToken,
+  resetPasswordUser,
+  changePasswordUser,
 };

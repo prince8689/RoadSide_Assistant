@@ -32,6 +32,7 @@ const {
   updateProfileSchema,
   updateLocationSchema,
   updateAvailabilitySchema,
+  updateServicesSchema,
 } = require('./mechanic.validation');
 
 // ---- All routes require authentication ----
@@ -73,6 +74,20 @@ router.patch(
   authorizeRoles('mechanic'),
   validate(updateAvailabilitySchema),
   mechanicController.updateAvailability
+);
+
+// ---- Custom Services Pricing Route (mechanic role only) ----
+router.get(
+  '/services',
+  authorizeRoles('mechanic'),
+  mechanicController.getMyServices
+);
+
+router.put(
+  '/services',
+  authorizeRoles('mechanic'),
+  validate(updateServicesSchema),
+  mechanicController.updateMyServices
 );
 
 // ---- Nearby Mechanics Route (user role only) ----

@@ -15,7 +15,7 @@ const useAdminStore = create((set) => ({
   fetchStats: async () => {
     try {
       const res = await getDashboardStats();
-      set({ stats: res.data.data || res.data });
+      set({ stats: res.data?.stats || res.data });
     } catch {}
   },
 
@@ -24,7 +24,7 @@ const useAdminStore = create((set) => ({
     try {
       const res = await getAllUsers(params);
       set({
-        users: res.data.data || [],
+        users: res.data?.users || res.data || [],
         pagination: res.data.pagination || {},
         isLoading: false
       });
@@ -34,7 +34,7 @@ const useAdminStore = create((set) => ({
   fetchPendingMechanics: async () => {
     try {
       const res = await getPendingMechanics();
-      set({ pendingMechanics: res.data.data || [] });
+      set({ pendingMechanics: res.data?.mechanics || res.data || [] });
     } catch {}
   },
 
@@ -43,7 +43,7 @@ const useAdminStore = create((set) => ({
     try {
       const res = await getAllRequests(params);
       set({
-        requests: res.data.data || [],
+        requests: res.data?.requests || res.data || [],
         pagination: res.data.pagination || {},
         isLoading: false
       });

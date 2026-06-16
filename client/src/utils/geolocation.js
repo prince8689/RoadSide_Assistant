@@ -37,7 +37,7 @@ export const getCurrentLocation = () => {
             break;
         }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
     );
   });
 };
@@ -78,7 +78,7 @@ export const watchLocation = (callback, errorCallback) => {
       }
       if (errorCallback) errorCallback(errorMessage);
     },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
   );
 };
 
@@ -119,16 +119,16 @@ export const calculateDistance = (lat1, lng1, lat2, lng2) => {
 };
 
 /**
- * Converts coordinates to formatted address using Google Maps Geocoding API
+ * Converts coordinates to formatted address using OpenStreetMap Nominatim API
  * @param {number} lat 
  * @param {number} lng 
- * @returns {Promise<string>} Formatted address or "Unknown location"
+ * @returns {Promise<string>} Formatted address or raw coordinates
  */
 export const getAddressFromCoords = async (lat, lng) => {
   try {
     const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
     if (!apiKey || apiKey === 'your_google_maps_api_key_here') {
-      return `${lat.toFixed(4)}, ${lng.toFixed(4)}`; // Fallback if no key
+      return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
     }
     
     const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`);
@@ -137,10 +137,10 @@ export const getAddressFromCoords = async (lat, lng) => {
     if (data.status === 'OK' && data.results.length > 0) {
       return data.results[0].formatted_address;
     }
-    return "Unknown location";
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   } catch (error) {
     console.error('Error fetching address:', error);
-    return "Unknown location";
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   }
 };
 

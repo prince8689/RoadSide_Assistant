@@ -33,6 +33,11 @@ const updateProfileSchema = Joi.object({
     .messages({
       'string.pattern.base': phoneMessage,
     }),
+
+  address: Joi.string()
+    .trim()
+    .max(500)
+    .optional(),
 }).min(1).messages({
   'object.min': 'At least one field (full_name or phone) is required to update',
 });
@@ -103,6 +108,20 @@ const addVehicleSchema = Joi.object({
     .messages({
       'string.max': 'Color cannot exceed 30 characters',
     }),
+
+  vehicle_type: Joi.string()
+    .trim()
+    .max(50)
+    .default('car')
+    .optional(),
+
+  is_default: Joi.boolean().default(false).optional(),
+  
+  image_url: Joi.string().trim().max(255).allow('', null).optional(),
+  chassis_number: Joi.string().trim().max(100).allow('', null).optional(),
+  engine_number: Joi.string().trim().max(100).allow('', null).optional(),
+  insurance_expiry_date: Joi.date().allow('', null).optional(),
+  nickname: Joi.string().trim().max(100).allow('', null).optional(),
 });
 
 // ============================================
@@ -162,12 +181,44 @@ const updateVehicleSchema = Joi.object({
     .messages({
       'string.max': 'Color cannot exceed 30 characters',
     }),
+
+  vehicle_type: Joi.string()
+    .trim()
+    .max(50)
+    .optional(),
+
+  image_url: Joi.string().trim().max(255).allow('', null).optional(),
+  chassis_number: Joi.string().trim().max(100).allow('', null).optional(),
+  engine_number: Joi.string().trim().max(100).allow('', null).optional(),
+  insurance_expiry_date: Joi.date().allow('', null).optional(),
+  nickname: Joi.string().trim().max(100).allow('', null).optional(),
 }).min(1).messages({
   'object.min': 'At least one field is required to update',
 });
+
+// ============================================
+// EMERGENCY CONTACT SCHEMA
+// ============================================
+const emergencyContactSchema = Joi.object({
+  contact_name: Joi.string().trim().max(100).required(),
+  relationship: Joi.string().trim().max(50).optional(),
+  phone: Joi.string().trim().pattern(phonePattern).required(),
+});
+
+// ============================================
+// PREFERENCES SCHEMA
+// ============================================
+const preferencesSchema = Joi.object({
+  request_updates: Joi.boolean().optional(),
+  mechanic_alerts: Joi.boolean().optional(),
+  service_completed: Joi.boolean().optional(),
+  promotions: Joi.boolean().optional(),
+}).min(1);
 
 module.exports = {
   updateProfileSchema,
   addVehicleSchema,
   updateVehicleSchema,
+  emergencyContactSchema,
+  preferencesSchema,
 };

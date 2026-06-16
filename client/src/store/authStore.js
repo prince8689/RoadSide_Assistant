@@ -1,9 +1,7 @@
 import { createSlice, createAsyncThunk, configureStore } from '@reduxjs/toolkit';
 import requestReducer from './requestStore';
-import { sendOtp, verifyOtp, registerUser, loginUser, logoutUser, getMe } from '../api/authApi';
+import { sendOtp, verifyOtp, registerUser, loginUser, logoutUser, getMe, resetPassword } from '../api/authApi';
 import { disconnectSocket } from '../socket/socketClient';
-
-// Thunks
 export const sendOTPThunk = createAsyncThunk(
   'auth/sendOTP',
   async ({ email, purpose }, { rejectWithValue }) => {
@@ -48,6 +46,18 @@ export const loginThunk = createAsyncThunk(
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || error.message || 'Login failed');
+    }
+  }
+);
+
+export const resetPasswordThunk = createAsyncThunk(
+  'auth/resetPassword',
+  async (data, { rejectWithValue }) => {
+    try {
+      const response = await resetPassword(data);
+      return response;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || error.message || 'Reset password failed');
     }
   }
 );
@@ -163,6 +173,19 @@ const authSlice = createSlice({
         localStorage.setItem('user', JSON.stringify(state.user));
       })
       .addCase(loginThunk.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload;
+      })
+
+      // resetPasswordThunk
+      .addCase(resetPasswordThunk.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(resetPasswordThunk.fulfilled, (state) => {
+        state.isLoading = false;
+      })
+      .addCase(resetPasswordThunk.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload;
       })

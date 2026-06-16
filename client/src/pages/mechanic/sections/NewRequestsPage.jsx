@@ -20,7 +20,7 @@ const NewRequestsPage = () => {
     try {
       await acceptRequest(id);
       toast.success('Request accepted successfully!');
-      navigate('/mechanic/active-job');
+      navigate('/mechanic/job');
     } catch (err) {
       toast.error('Failed to accept request. It might have been taken.');
       removeFromAvailable(id);
@@ -95,7 +95,7 @@ const NewRequestsPage = () => {
                     <FiMapPin className="text-gray-400 flex-shrink-0" /> 
                     <span className="truncate max-w-[250px] inline-block">{req.address || 'User Location'}</span>
                   </p>
-                  <p className="text-xs text-muted">₹{req.estimated_price} estimated</p>
+                  <p className="text-xs text-muted">₹{req.category_base_price} estimated</p>
                   {req.description && <p className="text-sm text-gray-600 italic mt-2">"{req.description}"</p>}
                 </div>
               </div>

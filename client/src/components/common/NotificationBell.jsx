@@ -1,14 +1,30 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FiBell } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 import useNotificationStore from '../../store/notificationStore';
 
 const NotificationBell = () => {
-  const { unreadCount, notifications, markAllAsRead } = useNotificationStore();
+  const { unreadCount, notifications, markAllAsRead, fetchNotifications, fetchUnreadCount } = useNotificationStore();
   const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    fetchNotifications();
+    fetchUnreadCount();
+  }, [fetchNotifications, fetchUnreadCount]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
-    <div className="relative">
+    <div className="relative" ref={dropdownRef}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 text-gray-400 hover:text-white transition-colors"

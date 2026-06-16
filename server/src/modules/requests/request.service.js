@@ -12,6 +12,7 @@
 //   - Estimated price comes from service_categories.base_price
 
 const { query, pool } = require('../../config/db');
+const path = require('path');
 const { AppError } = require('../../middleware/errorHandler');
 const { createNotification, createBulkNotifications } = require('../notifications/notification.service');
 const NotificationMessages = require('../../utils/notificationHelper');
@@ -21,9 +22,11 @@ const EVENTS = require('../../socket/events');
 const { redisClient } = require('../../config/redis');
 const { getNearbyMechanics } = require('../mechanics/mechanic.service');
 const { emitDashboardUpdate } = require('../../utils/adminDashboardEmitter');
+const { sendJobAlert, sendRequestRejectedEmail } = require('../../utils/email');
+const { logger } = require('../../utils/logger');
 
 // ---- Statuses considered "active" (not finished) ----
-const ACTIVE_STATUSES = ['pending', 'accepted', 'en_route', 'arrived', 'in_progress'];
+const ACTIVE_STATUSES = ['pending', 'accepted', 'en_route', 'arrived', 'in_progress', 'awaiting_payment', 'payment_verification'];
 
 // ---- Statuses that allow cancellation ----
 const CANCELLABLE_STATUSES = ['pending', 'accepted'];
@@ -56,6 +59,9 @@ const createRequest = async (userId, data) => {
     breakdown_lng,
     breakdown_address,
     description,
+    mechanic_id, // User now specifically selects a mechanic
+    shareLocation = true,
+    sharePhone = false
   } = data;
 
   // Use a transaction — multiple reads + one insert must be atomic
@@ -87,15 +93,29 @@ const createRequest = async (userId, data) => {
       throw new AppError('This vehicle does not belong to you', 403);
     }
 
-    // 2. Check no active request exists for this user
+    // 2. Check no active request exists for this user (unless it's just pending)
     const activeCheck = await client.query(
-      `SELECT id FROM service_requests
+      `SELECT id, status FROM service_requests
        WHERE user_id = $1 AND status = ANY($2)`,
       [userId, ACTIVE_STATUSES]
     );
 
     if (activeCheck.rows.length > 0) {
-      throw new AppError('You already have an active service request', 409);
+      const allPending = activeCheck.rows.every(r => r.status === 'pending');
+      if (!allPending) {
+        throw new AppError('You already have an active service request in progress', 409);
+      } else {
+        // Automatically cancel the previous pending requests
+        // so the user only has one active request at a time.
+        await client.query(
+          `UPDATE service_requests
+           SET status = 'cancelled',
+               cancel_reason = 'Cancelled by user to book a new mechanic',
+               updated_at = NOW()
+           WHERE user_id = $1 AND status = 'pending'`,
+          [userId]
+        );
+      }
     }
 
     // 3. Verify service category exists and is active
@@ -110,26 +130,50 @@ const createRequest = async (userId, data) => {
 
     const category = categoryCheck.rows[0];
 
+    // Get User Details for the Notification
+    const userQuery = await client.query('SELECT full_name, phone FROM users WHERE id = $1', [userId]);
+    const userDetails = userQuery.rows[0];
+
+    // Gracefully handle if mechanic_id is actually a mechanic_profiles id
+    let finalMechanicId = mechanic_id;
+    if (finalMechanicId) {
+      const profileCheck = await client.query('SELECT user_id FROM mechanic_profiles WHERE id = $1', [finalMechanicId]);
+      if (profileCheck.rows.length > 0) {
+        finalMechanicId = profileCheck.rows[0].user_id;
+      }
+    }
+
     // 4. Insert the service request
     const result = await client.query(
       `INSERT INTO service_requests (
-        user_id, vehicle_id, category_id,
+        user_id, vehicle_id, category_id, mechanic_id,
         breakdown_lat, breakdown_lng, breakdown_address,
-        description, estimated_price, status
+        description, status, share_location, share_phone
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10)
       RETURNING *`,
       [
         userId,
         vehicle_id,
         category_id,
+        finalMechanicId,
         breakdown_lat,
         breakdown_lng,
         breakdown_address,
         description || null,
-        category.base_price,
+        shareLocation,
+        sharePhone
       ]
     );
+    // 5. Increment total_requests_received for the mechanic
+    if (finalMechanicId) {
+      await client.query(
+        `UPDATE mechanic_profiles 
+         SET total_requests_received = total_requests_received + 1 
+         WHERE user_id = $1`,
+        [finalMechanicId]
+      );
+    }
 
     await client.query('COMMIT');
 
@@ -142,21 +186,27 @@ const createRequest = async (userId, data) => {
     const msg = NotificationMessages.REQUEST_CREATED(category.name);
     await sendRealTimeNotification(userId, msg.title, msg.message, msg.type);
 
-    // Step 1: Find all nearby online mechanics (within 10km)
-    const nearbyMechanics = await getNearbyMechanics(breakdown_lat, breakdown_lng, 10);
+    // Step 1: Send real-time socket alert to the specifically selected mechanic
+    if (finalMechanicId) {
+      const isOnline = await redisClient.get(`user:online:${finalMechanicId}`);
+      
+      // Calculate masked location if consent is denied
+      // Add a small random offset (approx 1-3km) to lat/lng
+      const maskedLat = parseFloat(breakdown_lat) + (Math.random() - 0.5) * 0.02;
+      const maskedLng = parseFloat(breakdown_lng) + (Math.random() - 0.5) * 0.02;
 
-    // Step 2: For each nearby mechanic
-    for (const mechanic of nearbyMechanics) {
-      // Check if mechanic is online via Redis
-      const isOnline = await redisClient.get(`user:online:${mechanic.user_id}`);
-
-      // Step 3: Send real-time socket alert
-      sendToMechanic(mechanic.user_id, EVENTS.NEW_REQUEST, {
+      sendToMechanic(finalMechanicId, EVENTS.NEW_REQUEST, {
         requestId: request.id,
         serviceType: category.name,
-        location: { lat: breakdown_lat, lng: breakdown_lng, address: breakdown_address },
-        estimatedPrice: category.base_price,
-        distance: mechanic.distance_km,
+        description: description || 'No description provided',
+        userName: userDetails.full_name,
+        userPhone: sharePhone ? userDetails.phone : null,
+        shareLocation,
+        location: { 
+          lat: shareLocation ? breakdown_lat : maskedLat, 
+          lng: shareLocation ? breakdown_lng : maskedLng, 
+          address: breakdown_address || 'Nearby Area' 
+        },
         vehicleDetails: { 
           make: request.vehicle.make, 
           model: request.vehicle.model, 
@@ -164,13 +214,32 @@ const createRequest = async (userId, data) => {
         }
       });
 
-      // Step 4: Also save notification to DB for offline mechanics
+      // Also save notification to DB for offline mechanics
       await sendRealTimeNotification(
-        mechanic.user_id,
-        'New Service Request Nearby',
-        `${category.name} request ${mechanic.distance_km}km away`,
+        finalMechanicId,
+        'Direct Booking Request',
+        `You have a new booking request for ${category.name}`,
         'new_request'
       );
+
+      // Send Email Notification
+      try {
+        const mechQuery = await client.query('SELECT email, full_name FROM users WHERE id = $1', [finalMechanicId]);
+        if (mechQuery.rows.length > 0) {
+          const mech = mechQuery.rows[0];
+          await sendJobAlert(mech.email, mech.full_name, {
+            serviceType: category.name,
+            locationArea: breakdown_address,
+            distance: 'Nearby',
+            description: description || 'User requested roadside assistance',
+            vehicleInfo: `${request.vehicle.make} ${request.vehicle.model}`,
+            userName: userDetails.full_name,
+            userPhone: sharePhone ? userDetails.phone : null
+          });
+        }
+      } catch (err) {
+        logger.error('Failed to send job alert email: ' + err.message);
+      }
     }
 
     // Emit socket event to admin
@@ -230,11 +299,14 @@ const getUserRequests = async (userId) => {
       sc.icon AS category_icon,
       sc.base_price AS category_base_price,
       m.full_name AS mechanic_name,
-      m.phone AS mechanic_phone
+      m.phone AS mechanic_phone,
+      inv.total_amount AS invoice_amount,
+      inv.status AS invoice_status
     FROM service_requests sr
     JOIN vehicles v ON v.id = sr.vehicle_id
     JOIN service_categories sc ON sc.id = sr.category_id
     LEFT JOIN users m ON m.id = sr.mechanic_id
+    LEFT JOIN invoices inv ON inv.request_id = sr.id
     WHERE sr.user_id = $1
     ORDER BY sr.created_at DESC`,
     [userId]
@@ -362,6 +434,7 @@ const cancelRequest = async (requestId, userId, cancelReason) => {
      SET status = 'cancelled',
          cancelled_at = NOW(),
          cancel_reason = $1,
+         payment_status = 'cancelled',
          updated_at = NOW()
      WHERE id = $2
      RETURNING *`,
@@ -426,7 +499,6 @@ const getAvailableRequests = async (mechanicId) => {
       sr.breakdown_lng,
       sr.breakdown_address,
       sr.description,
-      sr.estimated_price,
       sr.requested_at,
       sr.created_at,
       u.full_name AS user_name,
@@ -470,7 +542,7 @@ const getMechanicRequests = async (mechanicId) => {
     `SELECT
       sr.*,
       u.full_name AS user_name,
-      u.phone AS user_phone,
+      CASE WHEN sr.share_phone = false THEN 'Hidden by User' ELSE u.phone END AS user_phone,
       v.make AS vehicle_make,
       v.model AS vehicle_model,
       v.year AS vehicle_year,
@@ -478,7 +550,10 @@ const getMechanicRequests = async (mechanicId) => {
       sc.name AS category_name,
       sc.slug AS category_slug,
       sc.icon AS category_icon,
-      sc.base_price AS category_base_price
+      sc.base_price AS category_base_price,
+      CASE WHEN sr.share_location = false THEN sr.breakdown_lat + 0.01 ELSE sr.breakdown_lat END AS breakdown_lat,
+      CASE WHEN sr.share_location = false THEN sr.breakdown_lng + 0.01 ELSE sr.breakdown_lng END AS breakdown_lng,
+      CASE WHEN sr.share_location = false THEN 'Location Hidden - General Area' ELSE sr.breakdown_address END AS breakdown_address
     FROM service_requests sr
     JOIN users u ON u.id = sr.user_id
     JOIN vehicles v ON v.id = sr.vehicle_id
@@ -517,7 +592,12 @@ const getActiveRequest = async (userId, role) => {
 
   const result = await query(
     `SELECT
-      sr.*,
+      sr.id, sr.user_id, sr.mechanic_id, sr.vehicle_id, sr.category_id, sr.status, 
+      sr.description, sr.final_price, sr.requested_at, sr.accepted_at, 
+      sr.en_route_at, sr.arrived_at, sr.started_at, sr.completed_at, sr.cancelled_at, 
+      sr.created_at, sr.updated_at, sr.cancel_reason, sr.user_feedback, sr.share_location, 
+      sr.share_phone, sr.invoice_url, sr.payment_status, sr.payment_method, sr.payment_receipt_url,
+      sr.mechanic_lat, sr.mechanic_lng,
       v.make AS vehicle_make,
       v.model AS vehicle_model,
       v.year AS vehicle_year,
@@ -527,9 +607,12 @@ const getActiveRequest = async (userId, role) => {
       sc.icon AS category_icon,
       sc.base_price AS category_base_price,
       u.full_name AS user_name,
-      u.phone AS user_phone,
+      CASE WHEN ($3 = 'mechanic' AND sr.share_phone = false) THEN 'Hidden by User' ELSE u.phone END AS user_phone,
       m.full_name AS mechanic_name,
-      m.phone AS mechanic_phone
+      m.phone AS mechanic_phone,
+      CASE WHEN ($3 = 'mechanic' AND sr.share_location = false) THEN sr.breakdown_lat + 0.01 ELSE sr.breakdown_lat END AS breakdown_lat,
+      CASE WHEN ($3 = 'mechanic' AND sr.share_location = false) THEN sr.breakdown_lng + 0.01 ELSE sr.breakdown_lng END AS breakdown_lng,
+      CASE WHEN ($3 = 'mechanic' AND sr.share_location = false) THEN 'Location Hidden - General Area' ELSE sr.breakdown_address END AS breakdown_address
     FROM service_requests sr
     JOIN vehicles v ON v.id = sr.vehicle_id
     JOIN service_categories sc ON sc.id = sr.category_id
@@ -537,12 +620,11 @@ const getActiveRequest = async (userId, role) => {
     LEFT JOIN users m ON m.id = sr.mechanic_id
     WHERE ${whereClause}
       AND sr.status = ANY($2)
-    ORDER BY sr.created_at DESC
-    LIMIT 1`,
-    [userId, ACTIVE_STATUSES]
+    ORDER BY sr.created_at DESC`,
+    [userId, ACTIVE_STATUSES, role]
   );
 
-  return result.rows[0] || null;
+  return result.rows;
 };
 
 // ============================================
@@ -558,7 +640,9 @@ const validTransitions = {
   accepted: ['en_route'],
   en_route: ['arrived'],
   arrived: ['in_progress'],
-  in_progress: ['completed'],
+  in_progress: ['completed', 'awaiting_payment'],
+  awaiting_payment: ['payment_verification', 'completed'], // completed for cash without verification
+  payment_verification: ['completed', 'awaiting_payment']
 };
 
 /**
@@ -636,25 +720,17 @@ const acceptRequest = async (requestId, mechanicId) => {
       throw new AppError('Your profile must be verified before accepting requests', 400);
     }
 
-    // 3. Check mechanic has no other active request
-    const activeCheck = await client.query(
-      `SELECT id FROM service_requests
-       WHERE mechanic_id = $1 AND status = ANY($2)`,
-      [mechanicId, ACTIVE_STATUSES.filter(s => s !== 'pending')]
-    );
-
-    if (activeCheck.rows.length > 0) {
-      throw new AppError('You already have an active request. Complete it before accepting another.', 409);
-    }
-
+    // Removed the active request conflict check to allow multiple active jobs
     // 4. Update service_requests: assign mechanic, set accepted
     const updatedRequest = await client.query(
       `UPDATE service_requests
-       SET mechanic_id = $1,
-           status = 'accepted',
-           accepted_at = NOW(),
-           updated_at = NOW()
-       WHERE id = $2
+       SET status = 'accepted', 
+           mechanic_id = $1, 
+           accepted_at = NOW(), 
+           updated_at = NOW(),
+           mechanic_lat = (SELECT current_lat FROM mechanic_profiles WHERE user_id = $1),
+           mechanic_lng = (SELECT current_lng FROM mechanic_profiles WHERE user_id = $1)
+       WHERE id = $2 AND status = 'pending'
        RETURNING *`,
       [mechanicId, requestId]
     );
@@ -662,7 +738,9 @@ const acceptRequest = async (requestId, mechanicId) => {
     // 5. Update mechanic_profiles: set is_available = false
     await client.query(
       `UPDATE mechanic_profiles
-       SET is_available = false, updated_at = NOW()
+       SET is_available = false, 
+           total_requests_accepted = total_requests_accepted + 1,
+           updated_at = NOW()
        WHERE user_id = $1`,
       [mechanicId]
     );
@@ -734,6 +812,104 @@ const acceptRequest = async (requestId, mechanicId) => {
 };
 
 // ============================================
+// REJECT REQUEST (MECHANIC)
+// ============================================
+
+/**
+ * Mechanic rejects a pending request.
+ * Sets mechanic_id to NULL so user can pick another mechanic.
+ *
+ * @param {string} requestId 
+ * @param {string} mechanicId 
+ * @returns {Object}
+ */
+const rejectRequest = async (requestId, mechanicId) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const requestCheck = await client.query(
+      'SELECT id, user_id, mechanic_id, status FROM service_requests WHERE id = $1 FOR UPDATE',
+      [requestId]
+    );
+
+    if (requestCheck.rows.length === 0) {
+      throw new AppError('Service request not found', 404);
+    }
+
+    const request = requestCheck.rows[0];
+
+    if (request.status !== 'pending') {
+      throw new AppError('Only pending requests can be rejected', 400);
+    }
+
+    await client.query(
+      `UPDATE service_requests
+       SET status = 'cancelled', 
+           cancel_reason = 'Mechanic declined the request', 
+           payment_status = 'cancelled',
+           updated_at = NOW(),
+           mechanic_lat = (SELECT current_lat FROM mechanic_profiles WHERE user_id = $2),
+           mechanic_lng = (SELECT current_lng FROM mechanic_profiles WHERE user_id = $2)
+       WHERE id = $1`,
+      [requestId, mechanicId]
+    );
+
+    // Increment rejected count and check for auto-block
+    const updateResult = await client.query(
+      `UPDATE mechanic_profiles 
+       SET total_requests_rejected = total_requests_rejected + 1,
+           is_blocked = CASE WHEN total_requests_received >= 50 AND total_requests_accepted <= 2 THEN true ELSE is_blocked END
+       WHERE user_id = $1
+       RETURNING is_blocked`,
+      [mechanicId]
+    );
+
+    await client.query('COMMIT');
+
+    // If newly blocked, notify the mechanic via socket
+    if (updateResult.rows[0]?.is_blocked) {
+      sendToUser(mechanicId, 'mechanic:blocked', {
+        message: 'Your account has been temporarily blocked due to a high request rejection rate.'
+      });
+      // Set them offline
+      await redisClient.del(`user:online:${mechanicId}`);
+    }
+
+    // Notify the User via Socket
+    sendToUser(request.user_id, 'request:rejected', {
+      requestId,
+      message: 'Mechanic declined your request. Please select another mechanic.'
+    });
+
+    await sendRealTimeNotification(
+      request.user_id,
+      'Request Declined',
+      'The mechanic you selected is currently unavailable. Please select another mechanic.',
+      'request_rejected'
+    );
+
+    // Send email to user
+    try {
+      const userQuery = await client.query('SELECT email, full_name FROM users WHERE id = $1', [request.user_id]);
+      if (userQuery.rows.length > 0) {
+        const userRow = userQuery.rows[0];
+        await sendRequestRejectedEmail(userRow.email, userRow.full_name);
+      }
+    } catch (err) {
+      logger.error('Failed to send rejection email: ' + err.message);
+    }
+
+    return request;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================
 // UPDATE REQUEST STATUS (MECHANIC)
 // ============================================
 
@@ -768,7 +944,7 @@ const updateRequestStatus = async (requestId, mechanicId, newStatus) => {
 
     // 1. Fetch the request
     const requestCheck = await client.query(
-      'SELECT id, user_id, mechanic_id, status, estimated_price FROM service_requests WHERE id = $1 FOR UPDATE',
+      'SELECT id, user_id, mechanic_id, status, final_price FROM service_requests WHERE id = $1 FOR UPDATE',
       [requestId]
     );
 
@@ -806,12 +982,11 @@ const updateRequestStatus = async (requestId, mechanicId, newStatus) => {
     let updateParams;
 
     if (newStatus === 'completed') {
-      // Completion: set final_price = estimated_price + timestamp
+      // Completion: update timestamp
       updateQuery = `
         UPDATE service_requests
         SET status = $1,
             ${timestampColumn} = NOW(),
-            final_price = estimated_price,
             updated_at = NOW()
         WHERE id = $2
         RETURNING *`;
@@ -949,50 +1124,7 @@ const updateRequestStatus = async (requestId, mechanicId, newStatus) => {
   }
 };
 
-// ============================================
-// REJECT REQUEST (MECHANIC)
-// ============================================
 
-/**
- * Mechanic rejects a pending request without accepting it.
- * The request stays in pending status for other mechanics.
- *
- * Business rules:
- *   1. Request must exist and be in pending status
- *   2. Request stays pending — no mechanic is assigned
- *   3. This is a soft rejection — just acknowledges the mechanic passed on it
- *
- * @param {string} requestId - Service request UUID
- * @param {string} mechanicId - Mechanic's user UUID (for logging)
- * @returns {Object} The request (still pending)
- * @throws {AppError} 404 if request not found
- * @throws {AppError} 400 if request is not pending
- */
-const rejectRequest = async (requestId, mechanicId) => {
-  const requestCheck = await query(
-    'SELECT id, status FROM service_requests WHERE id = $1',
-    [requestId]
-  );
-
-  if (requestCheck.rows.length === 0) {
-    throw new AppError('Service request not found', 404);
-  }
-
-  const request = requestCheck.rows[0];
-
-  if (request.status !== 'pending') {
-    throw new AppError(
-      `Cannot reject a request with status "${request.status}". Only pending requests can be rejected.`,
-      400
-    );
-  }
-
-  // Request stays pending — no changes made to the request
-  // In production, you could log this rejection to a separate table
-  // for analytics (which mechanics are rejecting which requests)
-
-  return request;
-};
 
 // ============================================
 // GET REQUEST TIMELINE
@@ -1062,7 +1194,194 @@ const getRequestTimeline = async (requestId, userId, role) => {
   };
 };
 
+const submitFeedback = async (requestId, userId, feedback) => {
+  const result = await pool.query(
+    `UPDATE service_requests
+     SET user_feedback = $1
+     WHERE id = $2 AND user_id = $3
+     RETURNING id`,
+    [feedback, requestId, userId]
+  );
+  if (result.rows.length === 0) {
+    throw new AppError('Request not found or you are not authorized', 404);
+  }
+  return result.rows[0];
+};
+
+const updateLocation = async (requestId, lat, lng, userId) => {
+  const result = await pool.query(
+    `UPDATE service_requests
+     SET breakdown_lat = $1, breakdown_lng = $2
+     WHERE id = $3 AND user_id = $4
+     RETURNING *`,
+    [lat, lng, requestId, userId]
+  );
+  if (result.rows.length === 0) {
+    throw new AppError('Request not found or you are not authorized', 404);
+  }
+  return result.rows[0];
+};
+
+
+// ============================================
+// SUBMIT PAYMENT (USER)
+// ============================================
+const submitPayment = async (requestId, userId, paymentMethod, receiptFile) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const reqCheck = await client.query('SELECT id, user_id, mechanic_id, status FROM service_requests WHERE id = $1 FOR UPDATE', [requestId]);
+    if (reqCheck.rows.length === 0) throw new AppError('Request not found', 404);
+    
+    const request = reqCheck.rows[0];
+    if (request.user_id !== userId) throw new AppError('Unauthorized', 403);
+    if (request.status !== 'awaiting_payment') throw new AppError('Payment not awaited', 400);
+
+    let receiptUrl = null;
+    if (paymentMethod === 'online' && receiptFile) {
+      receiptUrl = '/uploads/receipts/' + receiptFile.filename;
+    }
+
+    const newStatus = 'payment_verification';
+
+    const updated = await client.query(
+      `UPDATE service_requests 
+       SET payment_status = $1, payment_method = $2, payment_receipt_url = $3, status = $4, updated_at = NOW() 
+       WHERE id = $5 RETURNING *`,
+      ['pending', paymentMethod, receiptUrl, newStatus, requestId]
+    );
+
+    sendToMechanic(request.mechanic_id, EVENTS.REQUEST_STATUS_UPDATE, { requestId, newStatus, paymentMethod, receiptUrl });
+    const msg = NotificationMessages.REQUEST_STATUS_UPDATE(`Mechanic is verifying your ${paymentMethod} payment.`);
+    await sendRealTimeNotification(userId, msg.title, msg.message, msg.type);
+    
+    if (paymentMethod === 'online') {
+      await sendRealTimeNotification(request.mechanic_id, 'Payment Receipt Uploaded', 'User has uploaded a payment receipt for verification', 'info');
+    } else {
+      await sendRealTimeNotification(request.mechanic_id, 'Cash Payment Verification', 'User selected Cash payment. Please verify.', 'info');
+    }
+
+    await client.query('COMMIT');
+    
+    return updated.rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================
+// VERIFY PAYMENT (MECHANIC)
+// ============================================
+const verifyPayment = async (requestId, mechanicId) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const reqCheck = await client.query('SELECT id, user_id, mechanic_id, status FROM service_requests WHERE id = $1 FOR UPDATE', [requestId]);
+    if (reqCheck.rows.length === 0) throw new AppError('Request not found', 404);
+    
+    const request = reqCheck.rows[0];
+    if (request.mechanic_id !== mechanicId) throw new AppError('Unauthorized', 403);
+    if (request.status !== 'payment_verification') throw new AppError('Not pending verification', 400);
+
+    const updated = await client.query(
+      `UPDATE service_requests 
+       SET payment_status = 'paid', status = 'completed', updated_at = NOW() 
+       WHERE id = $1 RETURNING *`,
+      [requestId]
+    );
+
+    const fullRequest = await getRequestById(requestId, mechanicId, 'mechanic');
+    const invoiceUrl = '/uploads/invoices/invoice-' + requestId + '.pdf';
+    const { generateInvoice } = require('../../utils/invoiceGenerator');
+    await generateInvoice(fullRequest, path.join(__dirname, '../../../public' + invoiceUrl));
+    await client.query('UPDATE service_requests SET invoice_url = $1 WHERE id = $2', [invoiceUrl, requestId]);
+    await client.query("UPDATE invoices SET status = 'paid', paid_at = NOW() WHERE request_id = $1", [requestId]);
+
+    const fullRequestCompleted = await getRequestById(requestId, request.user_id, 'user');
+    sendToUser(request.user_id, 'request:status-update', fullRequestCompleted);
+    sendToUser(request.user_id, EVENTS.REQUEST_COMPLETED, { requestId, message: 'Payment verified and job completed.' });
+    const msg = NotificationMessages.REQUEST_COMPLETED('Payment verified successfully. Job is now complete!');
+    await sendRealTimeNotification(request.user_id, msg.title, msg.message, msg.type);
+
+    await client.query('UPDATE mechanic_profiles SET is_available = true WHERE user_id = $1', [mechanicId]);
+    await client.query('COMMIT');
+    
+    await redisClient.del(`request:active:${request.user_id}`);
+    await redisClient.del(`mechanic:active:${mechanicId}`);
+
+    const { sendJobAlert } = require('../../utils/email');
+    const uQuery = await pool.query('SELECT email, full_name FROM users WHERE id = $1', [request.user_id]);
+    if (uQuery.rows.length > 0) {
+      await sendJobAlert(uQuery.rows[0].email, uQuery.rows[0].full_name, {
+        serviceType: 'Invoice Available',
+        locationArea: 'Payment Successful',
+        distance: '-',
+        description: 'Your payment was successfully verified. You can view the invoice in your Service History.',
+        vehicleInfo: '-'
+      });
+    }
+
+    return updated.rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+const rejectPayment = async (requestId, mechanicId) => {
+  const client = await pool.connect();
+  const fs = require('fs');
+  const path = require('path');
+  try {
+    await client.query('BEGIN');
+
+    const request = await getRequestById(requestId, mechanicId, 'mechanic');
+    if (request.status !== 'payment_verification') {
+      throw new Error('Payment verification is not required for this request');
+    }
+
+    if (request.payment_receipt_url) {
+      const filePath = path.join(__dirname, '../../..' + request.payment_receipt_url);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
+
+    const updated = await client.query(
+      `UPDATE service_requests 
+       SET payment_status = 'pending', status = 'awaiting_payment', payment_method = null, payment_receipt_url = null, updated_at = NOW() 
+       WHERE id = $1 RETURNING *`,
+      [requestId]
+    );
+
+    const fullRequestRejected = await getRequestById(requestId, request.user_id, 'user');
+    sendToUser(request.user_id, 'request:status-update', fullRequestRejected);
+    sendToUser(request.user_id, EVENTS.PAYMENT_REJECTED, { requestId, message: 'Payment rejected. Please try again.' });
+    
+    const msg = NotificationMessages.REQUEST_STATUS('payment_rejected', 'Payment rejected by mechanic. Please submit payment again.');
+    await sendRealTimeNotification(request.user_id, msg.title, msg.message, msg.type);
+
+    await client.query('COMMIT');
+    return updated.rows[0];
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
+  submitPayment,
+  verifyPayment,
+  rejectPayment,
   createRequest,
   getUserRequests,
   getRequestById,
@@ -1071,8 +1390,9 @@ module.exports = {
   getMechanicRequests,
   getActiveRequest,
   acceptRequest,
-  updateRequestStatus,
   rejectRequest,
+  updateRequestStatus,
   getRequestTimeline,
+  submitFeedback,
+  updateLocation,
 };
-

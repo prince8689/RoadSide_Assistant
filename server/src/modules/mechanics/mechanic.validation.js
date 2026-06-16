@@ -52,13 +52,7 @@ const createProfileSchema = Joi.object({
     }),
 
   specializations: Joi.array()
-    .items(
-      Joi.string()
-        .valid(...SPECIALIZATIONS)
-        .messages({
-          'any.only': `Each specialization must be one of: ${SPECIALIZATIONS.join(', ')}`,
-        })
-    )
+    .items(Joi.string())
     .min(1)
     .unique()
     .required()
@@ -69,43 +63,13 @@ const createProfileSchema = Joi.object({
       'any.required': 'Specializations are required',
     }),
 
-  documents: Joi.object({
-    license: Joi.string()
-      .trim()
-      .min(1)
-      .max(50)
-      .required()
-      .messages({
-        'string.empty': 'License document number is required',
-        'any.required': 'License document number is required',
-      }),
-
-    aadhar: Joi.string()
-      .trim()
-      .min(1)
-      .max(50)
-      .required()
-      .messages({
-        'string.empty': 'Aadhar document number is required',
-        'any.required': 'Aadhar document number is required',
-      }),
-
-    certificate: Joi.string()
-      .trim()
-      .min(1)
-      .max(50)
-      .required()
-      .messages({
-        'string.empty': 'Certificate document number is required',
-        'any.required': 'Certificate document number is required',
-      }),
-  })
+  documents: Joi.object().unknown(true)
     .required()
     .messages({
-      'object.base': 'Documents must be an object with license, aadhar, and certificate',
+      'object.base': 'Documents must be an object',
       'any.required': 'Documents are required',
     }),
-});
+}).unknown(true);
 
 // ============================================
 // UPDATE MECHANIC PROFILE SCHEMA
@@ -135,13 +99,7 @@ const updateProfileSchema = Joi.object({
     }),
 
   specializations: Joi.array()
-    .items(
-      Joi.string()
-        .valid(...SPECIALIZATIONS)
-        .messages({
-          'any.only': `Each specialization must be one of: ${SPECIALIZATIONS.join(', ')}`,
-        })
-    )
+    .items(Joi.string())
     .min(1)
     .unique()
     .messages({
@@ -150,34 +108,10 @@ const updateProfileSchema = Joi.object({
       'array.unique': 'Specializations must not contain duplicates',
     }),
 
-  documents: Joi.object({
-    license: Joi.string()
-      .trim()
-      .min(1)
-      .max(50)
-      .messages({
-        'string.empty': 'License document number cannot be empty',
-      }),
-
-    aadhar: Joi.string()
-      .trim()
-      .min(1)
-      .max(50)
-      .messages({
-        'string.empty': 'Aadhar document number cannot be empty',
-      }),
-
-    certificate: Joi.string()
-      .trim()
-      .min(1)
-      .max(50)
-      .messages({
-        'string.empty': 'Certificate document number cannot be empty',
-      }),
-  }).messages({
+  documents: Joi.object().unknown(true).messages({
     'object.base': 'Documents must be an object',
   }),
-}).min(1).messages({
+}).min(1).unknown(true).messages({
   'object.min': 'At least one field is required to update',
 });
 
@@ -186,26 +120,26 @@ const updateProfileSchema = Joi.object({
 // PATCH /api/mechanics/location
 // ============================================
 const updateLocationSchema = Joi.object({
-  current_lat: Joi.number()
+  latitude: Joi.number()
     .min(-90)
     .max(90)
     .required()
     .messages({
-      'number.base': 'Latitude must be a number',
+      'number.base': 'Latitude must be a valid number',
       'number.min': 'Latitude must be between -90 and 90',
       'number.max': 'Latitude must be between -90 and 90',
-      'any.required': 'Latitude (current_lat) is required',
+      'any.required': 'Latitude is required',
     }),
 
-  current_lng: Joi.number()
+  longitude: Joi.number()
     .min(-180)
     .max(180)
     .required()
     .messages({
-      'number.base': 'Longitude must be a number',
+      'number.base': 'Longitude must be a valid number',
       'number.min': 'Longitude must be between -180 and 180',
       'number.max': 'Longitude must be between -180 and 180',
-      'any.required': 'Longitude (current_lng) is required',
+      'any.required': 'Longitude is required',
     }),
 });
 
@@ -222,10 +156,44 @@ const updateAvailabilitySchema = Joi.object({
     }),
 });
 
+// ============================================
+// UPDATE SERVICES SCHEMA
+// PUT /api/mechanics/services
+// ============================================
+const updateServicesSchema = Joi.object({
+  services: Joi.array()
+    .items(
+      Joi.object({
+        category_id: Joi.string().guid().required().messages({
+          'string.guid': 'category_id must be a valid UUID',
+          'any.required': 'category_id is required',
+        }),
+        min_price: Joi.number().min(0).required().messages({
+          'number.min': 'min_price cannot be negative',
+          'any.required': 'min_price is required',
+        }),
+        max_price: Joi.number().min(Joi.ref('min_price')).required().messages({
+          'number.min': 'max_price must be greater than or equal to min_price',
+          'any.required': 'max_price is required',
+        }),
+        is_enabled: Joi.boolean().required().messages({
+          'any.required': 'is_enabled is required',
+        }),
+      })
+    )
+    .min(1)
+    .required()
+    .messages({
+      'array.min': 'At least one service must be provided',
+      'any.required': 'services array is required',
+    }),
+});
+
 module.exports = {
   createProfileSchema,
   updateProfileSchema,
   updateLocationSchema,
   updateAvailabilitySchema,
+  updateServicesSchema,
   SPECIALIZATIONS,
 };

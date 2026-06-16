@@ -23,6 +23,12 @@ class ErrorBoundary extends Component {
             <p className="text-gray-500 mb-6 text-sm">
               An unexpected error occurred. Please refresh the page to try again.
             </p>
+            {this.state.error && (
+              <div className="bg-red-50 text-red-500 p-4 rounded-lg mb-6 text-left text-xs overflow-auto max-h-40">
+                <p className="font-bold">{this.state.error.toString()}</p>
+                <p className="whitespace-pre-wrap">{this.state.error.stack}</p>
+              </div>
+            )}
             <button
               onClick={() => window.location.reload()}
               className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-3 px-4 rounded-xl transition"

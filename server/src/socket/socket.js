@@ -14,6 +14,13 @@ const getNotificationService = () => require('../modules/notifications/notificat
 const getRequestService = () => require('../modules/requests/request.service');
 
 let io;
+let dashboardUpdateTimeout;
+const debouncedDashboardUpdate = () => {
+  clearTimeout(dashboardUpdateTimeout);
+  dashboardUpdateTimeout = setTimeout(() => {
+    require('../utils/adminDashboardEmitter').emitDashboardUpdate();
+  }, 1000);
+};
 
 /**
  * Initialize Socket.io on the given HTTP server.
@@ -144,6 +151,7 @@ const initSocket = (server) => {
           socketId: socket.id
         })
       );
+      debouncedDashboardUpdate();
     } catch (err) {
       logger.error(`Redis online presence error: ${err.message}`);
     }
@@ -190,11 +198,16 @@ const initSocket = (server) => {
     // ============================================
     socket.on('mechanic:location-update', safeHandler(async (data) => {
       if (role !== 'mechanic') return;
-      const { mechanicId, lat, lng, accuracy } = data;
+      const { mechanicId, lat, lng, accuracy } = data; // mechanicId is user_id
       
-      // Update location via service
-      const searchService = require('../modules/search/search.service');
-      await searchService.updateMechanicLocation(mechanicId, lat, lng, accuracy);
+      // Find mechanic profile ID
+      const mechRes = await query('SELECT id FROM mechanic_profiles WHERE user_id = $1', [mechanicId]);
+      if (mechRes.rows.length > 0) {
+        const profileId = mechRes.rows[0].id;
+        // Update location via service
+        const searchService = require('../modules/search/search.service');
+        await searchService.updateMechanicLocation(profileId, lat, lng, accuracy);
+      }
       
       // Emit to mechanic's own room
       io.to(`mechanic:${mechanicId}`).emit('location:updated', { lat, lng, timestamp: new Date() });
@@ -228,7 +241,10 @@ const initSocket = (server) => {
       socket.join(`tracking:${requestId}`);
       
       // Send current mechanic location
-      const mechRes = await query('SELECT latitude, longitude FROM mechanic_profiles WHERE id = $1', [mechanicId]);
+      // Check if mechanicId is UUID
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mechanicId);
+      const whereClause = isUUID ? 'user_id = $1' : 'id = $1';
+      const mechRes = await query(`SELECT latitude, longitude FROM mechanic_profiles WHERE ${whereClause}`, [mechanicId]);
       if (mechRes.rows.length > 0 && mechRes.rows[0].latitude) {
         socket.emit('tracking:started', { 
           lat: mechRes.rows[0].latitude, 
@@ -267,6 +283,33 @@ const initSocket = (server) => {
         // Broadcast to users within 10km (optimistic broadcast)
         // A better approach would be checking users' exact location, but simplified broadcast for now:
         socket.broadcast.emit('mechanic:available', { mechanicId: mechanic.id });
+      }
+    }));
+
+    // ============================================
+    // EXACT LOCATION SHARING (MECHANIC <-> USER)
+    // ============================================
+    socket.on('mechanic:request_location', safeHandler(async (data) => {
+      if (role !== 'mechanic') return;
+      const { requestId } = data;
+      // Get the user ID for this request
+      const reqRes = await query('SELECT user_id FROM service_requests WHERE id = $1', [requestId]);
+      if (reqRes.rows.length > 0) {
+        const userId = reqRes.rows[0].user_id;
+        io.to(`user:${userId}`).emit('mechanic:request_location', { requestId });
+      }
+    }));
+
+    socket.on('user:share_location', safeHandler(async (data) => {
+      if (role !== 'user') return;
+      const { requestId, lat, lng } = data;
+      // Get mechanic ID for this request
+      const reqRes = await query('SELECT mechanic_id FROM service_requests WHERE id = $1', [requestId]);
+      if (reqRes.rows.length > 0) {
+        const mechanicId = reqRes.rows[0].mechanic_id;
+        if (mechanicId) {
+          io.to(`mechanic:${mechanicId}`).emit('user:share_location', { requestId, lat, lng });
+        }
       }
     }));
 
@@ -352,6 +395,7 @@ const initSocket = (server) => {
       logger.info(`Socket disconnected: ${socket.id} | Reason: ${reason}`);
       
       await redisClient.del(`user:online:${id}`);
+      debouncedDashboardUpdate();
       
       if (role === 'mechanic') {
         await redisClient.del(`mechanic:location:${id}`);

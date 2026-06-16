@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
-import { FiHome, FiTool, FiList, FiSettings, FiLogOut, FiMenu, FiX, FiCheckCircle, FiDollarSign, FiStar } from 'react-icons/fi';
+import { Routes, Route, Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { FiHome, FiTool, FiList, FiSettings, FiLogOut, FiMenu, FiX, FiCheckCircle, FiDollarSign, FiStar, FiClock, FiXCircle } from 'react-icons/fi';
 import { MdDirectionsCar } from 'react-icons/md';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSelector, useDispatch } from 'react-redux';
@@ -17,6 +17,7 @@ import ActiveJobPage from './sections/ActiveJobPage';
 import EarningsPage from './sections/EarningsPage';
 import ReviewsPage from './sections/ReviewsPage';
 import MechanicProfilePage from './sections/MechanicProfilePage';
+import MechanicServicesPage from './sections/MechanicServicesPage';
 
 const MechanicDashboard = () => {
   const { user } = useSelector((state) => state.auth);
@@ -26,6 +27,7 @@ const MechanicDashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   
   useSocket(); // Sockets listen to events
 
@@ -38,6 +40,7 @@ const MechanicDashboard = () => {
     { name: 'Dashboard', path: '/mechanic/home', icon: FiHome },
     { name: 'New Requests', path: '/mechanic/requests', icon: FiList },
     { name: 'Active Job', path: '/mechanic/job', icon: FiTool },
+    { name: 'Services Pricing', path: '/mechanic/services', icon: FiDollarSign },
     { name: 'Service History', path: '/mechanic/history', icon: FiCheckCircle },
     { name: 'Earnings', path: '/mechanic/earnings', icon: FiDollarSign },
     { name: 'Profile', path: '/mechanic/profile', icon: FiSettings },
@@ -51,7 +54,12 @@ const MechanicDashboard = () => {
     { path: '/mechanic/profile',  icon: <FiSettings />, label: 'Profile' },
   ];
 
+  const isSuspended = user?.suspension_end_date && new Date(user.suspension_end_date) > new Date();
+  const isBanned = user?.is_banned;
+  const isRestricted = isBanned || isSuspended;
+
   const handleToggle = async () => {
+    if (isRestricted) return alert('Your account is restricted. You cannot go online.');
     if (!profile) return alert('Please complete your profile first.');
     if (!profile.is_verified) return alert('Your profile is pending admin verification.');
     await toggleAvailability();
@@ -112,7 +120,7 @@ const MechanicDashboard = () => {
         </div>
       </nav>
 
-      <aside className="hidden md:flex flex-col w-64 bg-dark min-h-screen fixed left-0 top-0 z-30 shadow-2xl">
+      <aside className={`hidden md:flex flex-col w-64 bg-dark min-h-screen fixed left-0 top-0 z-30 shadow-2xl transition-transform duration-300 ${isDesktopSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <SidebarContent />
       </aside>
 
@@ -130,9 +138,17 @@ const MechanicDashboard = () => {
         )}
       </AnimatePresence>
 
-      <main className="flex-1 min-h-screen pt-16 md:pt-0 md:ml-64 pb-20 md:pb-0 relative">
+      <main className={`flex-1 min-h-screen pt-16 md:pt-0 pb-20 md:pb-0 relative transition-all duration-300 ${isDesktopSidebarOpen ? 'md:ml-64' : 'md:ml-0'}`}>
         <header className="hidden md:flex justify-between items-center p-6 bg-white border-b border-gray-100 sticky top-0 z-20 shadow-sm">
-          <h2 className="text-xl font-bold text-dark">Partner Portal</h2>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsDesktopSidebarOpen(!isDesktopSidebarOpen)} 
+              className="text-gray-600 hover:text-dark text-2xl p-1 focus:outline-none"
+            >
+              <FiMenu />
+            </button>
+            <h2 className="text-xl font-bold text-dark">Partner Portal</h2>
+          </div>
           <div className="flex items-center gap-4">
             <button 
               onClick={handleToggle}
@@ -147,19 +163,58 @@ const MechanicDashboard = () => {
         </header>
 
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
+          {profile && !profile.is_verified && profile.rejection_reason && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3 shadow-sm">
+              <div className="text-red-500 mt-0.5"><FiX size={20} /></div>
+              <div>
+                <h3 className="font-bold text-red-800">Verification Rejected</h3>
+                <p className="text-sm text-red-700 mt-1">
+                  Your mechanic application was rejected for the following reason: <br />
+                  <strong className="block mt-2 bg-white/50 p-2 rounded border border-red-100">{profile.rejection_reason}</strong>
+                </p>
+                <p className="text-xs text-red-600 mt-2">Please update your profile details and contact support to re-apply.</p>
+              </div>
+            </div>
+          )}
+
           {!profile && !isLoading && location.pathname !== '/mechanic/profile' && (
              <div className="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-4 mb-6 rounded shadow-sm">
                <strong>Profile Incomplete:</strong> Please complete your profile to start accepting requests.
              </div>
           )}
-          <Routes>
-            <Route path="/home" element={<MechanicHomePage />} />
-            <Route path="/requests" element={<NewRequestsPage />} />
-            <Route path="/job" element={<ActiveJobPage />} />
-            <Route path="/earnings" element={<EarningsPage />} />
-            <Route path="/history" element={<ReviewsPage />} />
-            <Route path="/profile" element={<MechanicProfilePage />} />
-          </Routes>
+          
+          {profile && !profile.is_verified && location.pathname !== '/mechanic/profile' ? (
+            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-8 mb-6 rounded-xl shadow-sm text-center">
+               <FiClock className="mx-auto text-5xl text-yellow-500 mb-4" />
+               <h2 className="text-2xl font-bold mb-2">Verification Pending</h2>
+               <p>Your profile is currently under review by an administrator. You will be able to access the dashboard and accept requests once your account is verified.</p>
+               <button onClick={() => navigate('/mechanic/profile')} className="mt-6 bg-yellow-500 text-white px-6 py-2 rounded-xl font-bold hover:bg-yellow-600 transition-colors">Go to Profile</button>
+            </div>
+          ) : isRestricted ? (
+            <div className="bg-red-50 border-l-4 border-red-600 text-red-800 p-8 mb-6 rounded-xl shadow-sm text-center max-w-2xl mx-auto mt-10">
+               <FiXCircle className="mx-auto text-6xl text-red-600 mb-4" />
+               <h2 className="text-3xl font-bold mb-3">{isBanned ? 'Account Permanently Banned' : 'Account Suspended'}</h2>
+               <p className="text-lg">
+                 {isBanned 
+                  ? 'Your account has been permanently disabled due to severe or repeated violations of our community guidelines.'
+                  : `Your account is temporarily suspended due to a violation of our policies. You will regain access on ${new Date(user.suspension_end_date).toLocaleString()}.`}
+               </p>
+               <div className="mt-6 p-4 bg-white rounded-lg border border-red-100 text-sm">
+                  <p>If you believe this was an error, please contact support.</p>
+               </div>
+            </div>
+          ) : (
+            <Routes>
+              <Route path="/" element={<Navigate to="home" replace />} />
+              <Route path="/home" element={<MechanicHomePage />} />
+              <Route path="/requests" element={<NewRequestsPage />} />
+              <Route path="/job" element={<ActiveJobPage />} />
+              <Route path="/services" element={<MechanicServicesPage />} />
+              <Route path="/earnings" element={<EarningsPage />} />
+              <Route path="/history" element={<ReviewsPage />} />
+              <Route path="/profile" element={<MechanicProfilePage />} />
+            </Routes>
+          )}
         </div>
       </main>
       

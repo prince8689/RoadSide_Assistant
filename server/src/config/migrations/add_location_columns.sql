@@ -18,7 +18,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;
 -- Create mechanic_locations history table
 CREATE TABLE IF NOT EXISTS mechanic_locations (
   id SERIAL PRIMARY KEY,
-  mechanic_id INTEGER REFERENCES mechanic_profiles(id),
+  mechanic_id UUID REFERENCES mechanic_profiles(id),
   latitude DECIMAL(10, 8) NOT NULL,
   longitude DECIMAL(11, 8) NOT NULL,
   accuracy DECIMAL(10, 2),
@@ -30,16 +30,18 @@ CREATE INDEX IF NOT EXISTS idx_mechanic_locations_timestamp
   ON mechanic_locations(timestamp);
 
 -- Function to find nearby mechanics using Haversine formula in PostgreSQL
+DROP FUNCTION IF EXISTS find_nearby_mechanics(DECIMAL, DECIMAL, DECIMAL);
 CREATE OR REPLACE FUNCTION find_nearby_mechanics(
   user_lat DECIMAL,
   user_lng DECIMAL,
   radius_km DECIMAL DEFAULT 10
 )
 RETURNS TABLE (
-  mechanic_id INTEGER,
+  mechanic_id UUID,
+  user_id UUID,
   name VARCHAR,
   phone VARCHAR,
-  profile_picture VARCHAR,
+  profile_picture TEXT,
   latitude DECIMAL,
   longitude DECIMAL,
   distance_km DECIMAL,
@@ -48,12 +50,14 @@ RETURNS TABLE (
   average_rating DECIMAL,
   total_reviews INTEGER,
   specializations TEXT[],
-  experience_years VARCHAR
+  experience_years INTEGER,
+  business_name VARCHAR
 ) AS $$
 BEGIN
   RETURN QUERY
   SELECT 
     m.id as mechanic_id,
+    m.user_id as user_id,
     u.full_name as name,
     u.phone,
     u.profile_picture,
@@ -61,17 +65,20 @@ BEGIN
     m.longitude,
     ROUND(
       (6371 * acos(
-        cos(radians(user_lat)) * cos(radians(m.latitude)) *
-        cos(radians(m.longitude) - radians(user_lng)) +
-        sin(radians(user_lat)) * sin(radians(m.latitude))
+        LEAST(1.0, GREATEST(-1.0,
+          cos(radians(user_lat)) * cos(radians(m.latitude)) *
+          cos(radians(m.longitude) - radians(user_lng)) +
+          sin(radians(user_lat)) * sin(radians(m.latitude))
+        ))
       ))::DECIMAL, 1
     ) as distance_km,
     m.is_available,
     m.is_verified,
-    COALESCE(m.average_rating, 0) as average_rating,
-    COALESCE(m.total_reviews, 0) as total_reviews,
+    COALESCE(m.rating, 0) as average_rating,
+    COALESCE(m.total_jobs, 0) as total_reviews,
     m.specializations,
-    m.experience_years
+    m.experience_years,
+    m.business_name
   FROM mechanic_profiles m
   JOIN users u ON m.user_id = u.id
   WHERE 
@@ -80,9 +87,11 @@ BEGIN
     AND m.latitude IS NOT NULL
     AND m.longitude IS NOT NULL
     AND (6371 * acos(
-      cos(radians(user_lat)) * cos(radians(m.latitude)) *
-      cos(radians(m.longitude) - radians(user_lng)) +
-      sin(radians(user_lat)) * sin(radians(m.latitude))
+      LEAST(1.0, GREATEST(-1.0,
+        cos(radians(user_lat)) * cos(radians(m.latitude)) *
+        cos(radians(m.longitude) - radians(user_lng)) +
+        sin(radians(user_lat)) * sin(radians(m.latitude))
+      ))
     )) <= radius_km
   ORDER BY distance_km ASC
   LIMIT 20;

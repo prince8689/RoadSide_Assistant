@@ -4,6 +4,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { FiMapPin, FiClock, FiAlertCircle, FiChevronRight, FiNavigation } from 'react-icons/fi';
 import { MdHardware, MdRvHookup, MdBatteryChargingFull, MdTireRepair, MdLocalGasStation, MdMoreHoriz } from 'react-icons/md';
 import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
 
 import { 
   fetchActiveRequestThunk, 
@@ -38,32 +39,40 @@ const HomePage = () => {
     nearbyMechanics, 
     userLocation, 
     selectedMechanic,
-    isLoadingNearby 
+    isLoadingNearby,
+    error
   } = useSelector((state) => state.request);
 
+  useEffect(() => {
+    if (error) {
+      toast.error(error);
+    }
+  }, [error]);
+
   const [locationError, setLocationError] = useState(null);
+  const [isCheckingLocation, setIsCheckingLocation] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState('Nearest'); // Nearest, Top Rated
 
   useEffect(() => {
     dispatch(fetchActiveRequestThunk());
-    
-    // Initial location fetch
-    requestLocation();
+    // Removed automatic requestLocation() per user request
+  }, [dispatch]);
 
-    // Set interval to refresh nearby mechanics if we have location
+  // Set interval to refresh nearby mechanics if we have location
+  useEffect(() => {
+    if (!userLocation) return;
+    
     const interval = setInterval(() => {
-      if (userLocation) {
-        dispatch(fetchNearbyMechanicsThunk({ 
-          lat: userLocation.lat, 
-          lng: userLocation.lng,
-          radius: 15
-        }));
-      }
+      dispatch(fetchNearbyMechanicsThunk({ 
+        lat: userLocation.lat, 
+        lng: userLocation.lng,
+        radius: 15
+      }));
     }, 5 * 60 * 1000); // 5 mins
 
     return () => clearInterval(interval);
-  }, []); // eslint-disable-line
+  }, [userLocation, dispatch]);
 
   useEffect(() => {
     if (userLocation) {
@@ -77,12 +86,15 @@ const HomePage = () => {
 
   const requestLocation = async () => {
     setLocationError(null);
+    setIsCheckingLocation(true);
     try {
       const coords = await getCurrentLocation();
       dispatch(setUserLocation(coords));
       dispatch(updateUserLocationThunk(coords));
     } catch (err) {
       setLocationError(err);
+    } finally {
+      setIsCheckingLocation(false);
     }
   };
 
@@ -95,9 +107,9 @@ const HomePage = () => {
     }
   };
 
-  const handleRequestHelp = (mechanic) => {
+  const handleRequestHelp = (mechanic, categoryId) => {
     setIsModalOpen(false);
-    navigate('/dashboard/request', { state: { selectedMechanicId: mechanic.mechanic_id } });
+    navigate('/dashboard/request', { state: { selectedMechanicId: mechanic.user_id, categoryId } });
   };
 
   const handleServiceClick = (serviceType) => {
@@ -110,8 +122,9 @@ const HomePage = () => {
     return parseFloat(a.distance_km) - parseFloat(b.distance_km); // Nearest default
   });
 
-  const avgArrival = nearbyMechanics.length > 0 
-    ? Math.round(nearbyMechanics.reduce((acc, m) => acc + parseInt(m.estimatedArrival || 10), 0) / nearbyMechanics.length)
+  const mechanicsArray = Array.isArray(nearbyMechanics) ? nearbyMechanics : [];
+  const avgArrival = mechanicsArray.length > 0 
+    ? Math.round(mechanicsArray.reduce((acc, m) => acc + parseInt(m.estimatedArrival || 10), 0) / mechanicsArray.length)
     : '--';
 
   return (
@@ -122,13 +135,13 @@ const HomePage = () => {
         <div className="flex justify-between items-end px-1 pt-2">
           <div>
             <p className="text-gray-500 text-sm">Hello,</p>
-            <h1 className="text-2xl font-bold text-gray-900">{user?.name?.split(' ')[0] || 'Driver'} 👋</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{(user?.name || user?.full_name || 'Driver').split(' ')[0]} 👋</h1>
           </div>
         </div>
 
         {/* Section 1: Location Banner */}
         <AnimatePresence>
-          {!userLocation && (
+          {true && (
             <motion.div 
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -138,22 +151,23 @@ const HomePage = () => {
               <div className="flex items-center gap-3 text-orange-800">
                 <FiMapPin size={24} className="shrink-0" />
                 <div>
-                  <h3 className="font-bold text-sm">Location Access Required</h3>
+                  <h3 className="font-bold text-sm">{userLocation ? 'Update Your Location' : 'Location Access Required'}</h3>
                   <p className="text-xs opacity-90">{locationError || "Enable location to find mechanics near you."}</p>
                 </div>
               </div>
               <button 
                 onClick={requestLocation}
-                className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap w-full sm:w-auto hover:bg-orange-600 transition"
+                disabled={isCheckingLocation}
+                className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap w-full sm:w-auto hover:bg-orange-600 transition disabled:opacity-50"
               >
-                Allow Location
+                {isCheckingLocation ? 'Fetching...' : (userLocation ? 'Update Location' : 'Allow Location')}
               </button>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Section 6: Active Request Card (Moved up for priority) */}
-        {activeRequest && !['completed', 'cancelled'].includes(activeRequest.status) && (
+        {activeRequest && activeRequest.status && !['completed', 'cancelled'].includes(activeRequest.status) && (
           <div 
             onClick={() => navigate('/dashboard/tracking')}
             className="bg-gradient-to-r from-primary to-orange-400 rounded-2xl p-5 text-white shadow-lg cursor-pointer hover:shadow-xl transition-all relative overflow-hidden"
@@ -198,7 +212,8 @@ const HomePage = () => {
 
         {/* Section 5: Quick Service Buttons */}
         <div>
-          <h2 className="text-lg font-bold text-gray-900 mb-3 px-1">What do you need?</h2>
+          <h2 className="text-lg font-bold text-gray-900 mb-1 px-1">What do you need?</h2>
+          <p className="text-xs text-gray-500 mb-3 px-1 font-medium">24×7 Unique Toll-Free Helpline "1033" for road users on National Highways</p>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {services.map((service) => (
               <button
@@ -268,8 +283,8 @@ const HomePage = () => {
                 ))}
               </div>
             ) : nearbyMechanics.length > 0 ? (
-              <div className="space-y-3">
-                {sortedMechanics.slice(0, 5).map(mechanic => (
+              <div className="flex overflow-x-auto gap-4 pb-4 snap-x hide-scrollbar -mx-1 px-1">
+                {sortedMechanics.map(mechanic => (
                   <MechanicCard 
                     key={mechanic.mechanic_id || mechanic.id}
                     mechanic={mechanic}
@@ -278,13 +293,8 @@ const HomePage = () => {
                     isSelected={selectedMechanic?.mechanic_id === mechanic.mechanic_id}
                   />
                 ))}
-                
-                {nearbyMechanics.length > 5 && (
-                  <button className="w-full py-3 text-sm font-bold text-primary bg-orange-50 hover:bg-orange-100 rounded-xl transition-colors">
-                    See All {nearbyMechanics.length} Mechanics
-                  </button>
-                )}
               </div>
+
             ) : (
               <div className="text-center py-8 bg-white rounded-xl border border-dashed border-gray-300">
                 <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-400">

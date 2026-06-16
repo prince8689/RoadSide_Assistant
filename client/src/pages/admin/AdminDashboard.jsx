@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
-import { FiHome, FiUsers, FiTool, FiList, FiFolder, FiPieChart, FiSettings, FiLogOut, FiBell, FiMenu, FiX } from 'react-icons/fi';
+import { FiHome, FiUsers, FiTool, FiList, FiFolder, FiPieChart, FiSettings, FiLogOut, FiBell, FiMenu, FiX, FiMessageSquare, FiGrid, FiShield, FiDollarSign } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSelector, useDispatch } from 'react-redux';
 import { logoutThunk } from '../../store/authStore';
@@ -16,6 +16,9 @@ import MechanicsPage from './sections/MechanicsPage';
 import RequestsPage from './sections/RequestsPage';
 import CategoriesPage from './sections/CategoriesPage';
 import ReportsPage from './sections/ReportsPage';
+import AILogsPage from './sections/AILogsPage';
+import AdminComplaintDashboard from './sections/AdminComplaintDashboard';
+import FinancialsPage from './sections/FinancialsPage';
 
 const AdminDashboard = () => {
   const { user } = useSelector((state) => state.auth);
@@ -38,7 +41,10 @@ const AdminDashboard = () => {
     { name: 'Users', path: '/admin/users', icon: FiUsers },
     { name: 'Mechanics', path: '/admin/mechanics', icon: FiTool },
     { name: 'Requests', path: '/admin/requests', icon: FiList },
-    { name: 'Categories', path: '/admin/categories', icon: FiFolder },
+    { name: 'Categories', path: '/admin/categories', icon: FiGrid },
+    { name: 'Complaints', path: '/admin/complaints', icon: FiShield },
+    { name: 'Financials', path: '/admin/financials', icon: FiDollarSign },
+    { name: 'AI Logs', path: '/admin/ai-logs', icon: FiMessageSquare },
     { name: 'Reports', path: '/admin/reports', icon: FiPieChart },
   ];
 
@@ -47,6 +53,7 @@ const AdminDashboard = () => {
     { path: '/admin/users',     icon: <FiUsers />, label: 'Users' },
     { path: '/admin/requests',  icon: <FiList />, label: 'Requests' },
     { path: '/admin/mechanics', icon: <FiTool />, label: 'Mechanics' },
+    { path: '/admin/ai-logs',   icon: <FiMessageSquare />, label: 'AI Logs' },
     { path: '/admin/reports',   icon: <FiPieChart />, label: 'Reports' },
   ];
 
@@ -189,6 +196,9 @@ const AdminDashboard = () => {
             <Route path="/mechanics" element={<MechanicsPage />} />
             <Route path="/requests" element={<RequestsPage />} />
             <Route path="/categories" element={<CategoriesPage />} />
+            <Route path="/complaints" element={<AdminComplaintDashboard />} />
+            <Route path="/financials" element={<FinancialsPage />} />
+            <Route path="/ai-logs" element={<AILogsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
           </Routes>
         </div>

@@ -46,11 +46,11 @@ const getNearbyMechanics = async (req, res, next) => {
 const getMechanicById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (!id || isNaN(parseInt(id))) {
+    if (!id) {
       throw new AppError('Valid Mechanic ID is required', 400);
     }
 
-    const mechanic = await searchService.getMechanicById(parseInt(id));
+    const mechanic = await searchService.getMechanicById(id);
     return success(res, { mechanic }, 'Mechanic details fetched successfully');
   } catch (error) {
     next(error);

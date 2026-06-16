@@ -38,6 +38,16 @@ const createRequestSchema = Joi.object({
       'any.required': 'Service category ID is required',
     }),
 
+  mechanic_id: Joi.string()
+    .trim()
+    .pattern(uuidPattern)
+    .required()
+    .messages({
+      'string.empty': 'Mechanic ID is required',
+      'string.pattern.base': 'Mechanic ID must be a valid UUID',
+      'any.required': 'Mechanic ID is required',
+    }),
+
   breakdown_lat: Joi.number()
     .min(-90)
     .max(90)
@@ -79,6 +89,9 @@ const createRequestSchema = Joi.object({
     .messages({
       'string.max': 'Description cannot exceed 500 characters',
     }),
+
+  shareLocation: Joi.boolean().default(true),
+  sharePhone: Joi.boolean().default(false),
 });
 
 // ============================================

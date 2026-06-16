@@ -22,7 +22,7 @@ const { AppError } = require('../../middleware/errorHandler');
  */
 const getUserById = async (id) => {
   const result = await query(
-    `SELECT id, full_name, email, phone, role, profile_picture, is_active, created_at, updated_at
+    `SELECT id, full_name, email, phone, address, role, profile_picture, is_active, created_at, updated_at
      FROM users WHERE id = $1`,
     [id]
   );
@@ -44,7 +44,7 @@ const getUserById = async (id) => {
  * @throws {AppError} 409 if phone already taken by another user
  */
 const updateUserProfile = async (id, data) => {
-  const { full_name, phone } = data;
+  const { full_name, phone, address } = data;
 
   // If phone is being updated, check for duplicates
   if (phone) {
@@ -72,6 +72,11 @@ const updateUserProfile = async (id, data) => {
     values.push(phone);
   }
 
+  if (address !== undefined) {
+    updates.push(`address = $${paramIndex++}`);
+    values.push(address);
+  }
+
   // updated_at is handled by the trigger, but let's be explicit
   updates.push(`updated_at = NOW()`);
 
@@ -81,7 +86,7 @@ const updateUserProfile = async (id, data) => {
   const result = await query(
     `UPDATE users SET ${updates.join(', ')}
      WHERE id = $${paramIndex}
-     RETURNING id, full_name, email, phone, role, profile_picture, is_active, created_at, updated_at`,
+     RETURNING id, full_name, email, phone, address, role, profile_picture, is_active, created_at, updated_at`,
     values
   );
 
@@ -103,7 +108,7 @@ const uploadProfilePicture = async (id, imageUrl) => {
   const result = await query(
     `UPDATE users SET profile_picture = $1, updated_at = NOW()
      WHERE id = $2
-     RETURNING id, full_name, email, phone, role, profile_picture, is_active, created_at, updated_at`,
+     RETURNING id, full_name, email, phone, address, role, profile_picture, is_active, created_at, updated_at`,
     [imageUrl, id]
   );
 
@@ -126,7 +131,7 @@ const uploadProfilePicture = async (id, imageUrl) => {
  */
 const getUserVehicles = async (userId) => {
   const result = await query(
-    `SELECT id, user_id, make, model, year, license_plate, fuel_type, color, created_at
+    `SELECT id, user_id, make, model, year, license_plate, fuel_type, color, vehicle_type, is_default, image_url, chassis_number, engine_number, insurance_expiry_date, nickname, created_at
      FROM vehicles
      WHERE user_id = $1
      ORDER BY created_at DESC`,
@@ -146,7 +151,7 @@ const getUserVehicles = async (userId) => {
  * @throws {AppError} 409 if license plate already exists
  */
 const addVehicle = async (userId, data) => {
-  const { make, model, year, license_plate, fuel_type, color } = data;
+  const { make, model, year, license_plate, fuel_type, color, vehicle_type, is_default, image_url, chassis_number, engine_number, insurance_expiry_date, nickname } = data;
 
   // Check duplicate license plate
   const plateCheck = await query(
@@ -157,11 +162,15 @@ const addVehicle = async (userId, data) => {
     throw new AppError('License plate already registered', 409);
   }
 
+  if (is_default) {
+    await query('UPDATE vehicles SET is_default = false WHERE user_id = $1', [userId]);
+  }
+
   const result = await query(
-    `INSERT INTO vehicles (user_id, make, model, year, license_plate, fuel_type, color)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING id, user_id, make, model, year, license_plate, fuel_type, color, created_at`,
-    [userId, make, model, year, license_plate, fuel_type || 'petrol', color || null]
+    `INSERT INTO vehicles (user_id, make, model, year, license_plate, fuel_type, color, vehicle_type, is_default, image_url, chassis_number, engine_number, insurance_expiry_date, nickname)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     RETURNING id, user_id, make, model, year, license_plate, fuel_type, color, vehicle_type, is_default, image_url, chassis_number, engine_number, insurance_expiry_date, nickname, created_at`,
+    [userId, make, model, year, license_plate, fuel_type || 'petrol', color || null, vehicle_type || 'car', is_default || false, image_url || null, chassis_number || null, engine_number || null, insurance_expiry_date || null, nickname || null]
   );
 
   return result.rows[0];
@@ -178,7 +187,7 @@ const addVehicle = async (userId, data) => {
  */
 const getVehicleById = async (vehicleId, userId) => {
   const result = await query(
-    `SELECT id, user_id, make, model, year, license_plate, fuel_type, color, created_at
+    `SELECT id, user_id, make, model, year, license_plate, fuel_type, color, vehicle_type, is_default, image_url, chassis_number, engine_number, insurance_expiry_date, nickname, created_at
      FROM vehicles WHERE id = $1`,
     [vehicleId]
   );
@@ -228,7 +237,7 @@ const updateVehicle = async (vehicleId, userId, data) => {
   const values = [];
   let paramIndex = 1;
 
-  const allowedFields = ['make', 'model', 'year', 'license_plate', 'fuel_type', 'color'];
+  const allowedFields = ['make', 'model', 'year', 'license_plate', 'fuel_type', 'color', 'vehicle_type', 'image_url', 'chassis_number', 'engine_number', 'insurance_expiry_date', 'nickname'];
 
   for (const field of allowedFields) {
     if (data[field] !== undefined) {
@@ -247,7 +256,7 @@ const updateVehicle = async (vehicleId, userId, data) => {
   const result = await query(
     `UPDATE vehicles SET ${updates.join(', ')}
      WHERE id = $${paramIndex}
-     RETURNING id, user_id, make, model, year, license_plate, fuel_type, color, created_at`,
+     RETURNING id, user_id, make, model, year, license_plate, fuel_type, color, vehicle_type, is_default, image_url, chassis_number, engine_number, insurance_expiry_date, nickname, created_at`,
     values
   );
 
@@ -268,6 +277,85 @@ const deleteVehicle = async (vehicleId, userId) => {
   await query('DELETE FROM vehicles WHERE id = $1', [vehicleId]);
 };
 
+const setDefaultVehicle = async (vehicleId, userId) => {
+  await getVehicleById(vehicleId, userId);
+  await query('UPDATE vehicles SET is_default = false WHERE user_id = $1', [userId]);
+  const result = await query('UPDATE vehicles SET is_default = true WHERE id = $1 RETURNING *', [vehicleId]);
+  return result.rows[0];
+};
+
+// ============================================
+// EMERGENCY CONTACTS
+// ============================================
+const getEmergencyContact = async (userId) => {
+  const result = await query('SELECT * FROM emergency_contacts WHERE user_id = $1 LIMIT 1', [userId]);
+  return result.rows[0] || null;
+};
+
+const saveEmergencyContact = async (userId, data) => {
+  const { contact_name, relationship, phone } = data;
+  
+  const existing = await getEmergencyContact(userId);
+  if (existing) {
+    const result = await query(
+      `UPDATE emergency_contacts SET contact_name = $1, relationship = $2, phone = $3
+       WHERE id = $4 RETURNING *`,
+      [contact_name, relationship || null, phone, existing.id]
+    );
+    return result.rows[0];
+  } else {
+    const result = await query(
+      `INSERT INTO emergency_contacts (user_id, contact_name, relationship, phone)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [userId, contact_name, relationship || null, phone]
+    );
+    return result.rows[0];
+  }
+};
+
+// ============================================
+// USER PREFERENCES
+// ============================================
+const getPreferences = async (userId) => {
+  let result = await query('SELECT * FROM user_preferences WHERE user_id = $1 LIMIT 1', [userId]);
+  if (result.rows.length === 0) {
+    // create default
+    result = await query(
+      `INSERT INTO user_preferences (user_id) VALUES ($1) RETURNING *`,
+      [userId]
+    );
+  }
+  return result.rows[0];
+};
+
+const updatePreferences = async (userId, data) => {
+  // Ensure exists
+  await getPreferences(userId);
+  
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
+  const allowed = ['request_updates', 'mechanic_alerts', 'service_completed', 'promotions'];
+  
+  for (const field of allowed) {
+    if (data[field] !== undefined) {
+      updates.push(`${field} = $${paramIndex++}`);
+      values.push(data[field]);
+    }
+  }
+  
+  if (updates.length === 0) return await getPreferences(userId);
+  
+  updates.push(`updated_at = NOW()`);
+  values.push(userId);
+  
+  const result = await query(
+    `UPDATE user_preferences SET ${updates.join(', ')} WHERE user_id = $${paramIndex} RETURNING *`,
+    values
+  );
+  return result.rows[0];
+};
+
 module.exports = {
   getUserById,
   updateUserProfile,
@@ -277,4 +365,9 @@ module.exports = {
   getVehicleById,
   updateVehicle,
   deleteVehicle,
+  setDefaultVehicle,
+  getEmergencyContact,
+  saveEmergencyContact,
+  getPreferences,
+  updatePreferences,
 };

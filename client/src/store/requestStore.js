@@ -7,7 +7,7 @@ export const fetchActiveRequestThunk = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const res = await getActiveRequest();
-      return res.data.data;
+      return res.data?.request;
     } catch (err) {
       return rejectWithValue(err.response?.data?.message || 'Failed to fetch active request');
     }
@@ -19,7 +19,7 @@ export const fetchMyRequestsThunk = createAsyncThunk(
   async (_, { rejectWithValue }) => {
     try {
       const res = await getMyRequests();
-      return res.data.data;
+      return res.data?.requests;
     } catch (err) {
       return rejectWithValue(err.response?.data?.message || 'Failed to fetch requests');
     }
@@ -35,7 +35,7 @@ export const fetchNearbyMechanicsThunk = createAsyncThunk(
       if (serviceType) params.append('serviceType', serviceType);
       
       const res = await axiosInst.get(`/search/nearby?${params.toString()}`);
-      return res.data.data.mechanics;
+      return res.data?.mechanics;
     } catch (err) {
       return rejectWithValue(err.response?.data?.message || 'Failed to fetch nearby mechanics');
     }
@@ -59,7 +59,7 @@ export const createServiceRequestThunk = createAsyncThunk(
   async (requestData, { rejectWithValue }) => {
     try {
       const res = await axiosInst.post('/requests', requestData);
-      return res.data.data.request;
+      return res.data?.request;
     } catch (err) {
       return rejectWithValue(err.response?.data?.message || 'Failed to create request');
     }
@@ -70,10 +70,41 @@ export const cancelRequestThunk = createAsyncThunk(
   'request/cancelRequest',
   async ({ requestId, reason }, { rejectWithValue }) => {
     try {
-      await axiosInst.put(`/requests/${requestId}/cancel`, { reason });
+      await axiosInst.patch(`/requests/${requestId}/cancel`, { cancel_reason: reason });
       return requestId;
     } catch (err) {
       return rejectWithValue(err.response?.data?.message || 'Failed to cancel request');
+    }
+  }
+);
+
+
+export const submitPaymentThunk = createAsyncThunk(
+  'request/submitPayment',
+  async ({ requestId, paymentMethod, receiptFile }, { rejectWithValue }) => {
+    try {
+      const formData = new FormData();
+      formData.append('payment_method', paymentMethod);
+      if (receiptFile) formData.append('receipt', receiptFile);
+
+      const res = await axiosInst.post(`/requests/${requestId}/submit-payment`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      return res.data?.request;
+    } catch (err) {
+      return rejectWithValue(err.response?.data?.message || 'Failed to submit payment');
+    }
+  }
+);
+
+export const verifyPaymentThunk = createAsyncThunk(
+  'request/verifyPayment',
+  async (requestId, { rejectWithValue }) => {
+    try {
+      const res = await axiosInst.post(`/requests/${requestId}/verify-payment`);
+      return res.data?.request;
+    } catch (err) {
+      return rejectWithValue(err.response?.data?.message || 'Failed to verify payment');
     }
   }
 );
@@ -137,6 +168,12 @@ const requestSlice = createSlice({
       .addCase(fetchActiveRequestThunk.fulfilled, (state, action) => {
         state.isLoading = false;
         state.activeRequest = action.payload || null;
+        if (action.payload && action.payload.breakdown_lat && action.payload.breakdown_lng) {
+          state.userLocation = {
+            lat: parseFloat(action.payload.breakdown_lat),
+            lng: parseFloat(action.payload.breakdown_lng)
+          };
+        }
       })
       .addCase(fetchActiveRequestThunk.rejected, (state, action) => {
         state.isLoading = false;
@@ -189,6 +226,13 @@ const requestSlice = createSlice({
       })
 
       // Cancel Request
+      
+      .addCase(submitPaymentThunk.fulfilled, (state, action) => {
+        state.activeRequest = action.payload;
+      })
+      .addCase(verifyPaymentThunk.fulfilled, (state, action) => {
+        state.activeRequest = action.payload;
+      })
       .addCase(cancelRequestThunk.fulfilled, (state) => {
         state.activeRequest = null;
         state.mechanicLocation = null;

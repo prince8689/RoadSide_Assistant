@@ -23,6 +23,25 @@ const getDashboard = async (req, res, next) => {
   try {
     const stats = await adminService.getDashboardStats();
 
+    // Inject live stats
+    const { getConnectedUsers } = require('../../socket/socketManager');
+    stats.online_users = getConnectedUsers();
+
+    const { redisClient } = require('../../config/redis');
+    if (redisClient) {
+      try {
+        const keys = await redisClient.keys('user:online:*');
+        let onlineMechanics = 0;
+        for (const key of keys) {
+          const data = await redisClient.get(key);
+          if (data && JSON.parse(data).role === 'mechanic') onlineMechanics++;
+        }
+        stats.onlineMechanics = onlineMechanics;
+      } catch (e) {
+        // ignore redis errors silently for dashboard stats
+      }
+    }
+
     return success(res, { stats }, 'Dashboard stats fetched successfully');
   } catch (error) {
     next(error);
@@ -282,6 +301,41 @@ const getMechanicPerformance = async (req, res, next) => {
   }
 };
 
+// ============================================
+// SETTINGS
+// ============================================
+
+/**
+ * GET /api/admin/settings
+ * Get admin settings.
+ *
+ * Returns: 200 + settings object
+ */
+const getSettings = async (req, res, next) => {
+  try {
+    const settings = await adminService.getSettings();
+    return success(res, { settings }, 'Settings fetched successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/admin/settings
+ * Update admin settings.
+ *
+ * Body: { platform_fee_value?, tax_percentage? }
+ * Returns: 200 + updated settings
+ */
+const updateSettings = async (req, res, next) => {
+  try {
+    const settings = await adminService.updateSettings(req.body);
+    return success(res, { settings }, 'Settings updated successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getDashboard,
   getAllUsers,
@@ -296,4 +350,6 @@ module.exports = {
   updateCategory,
   getRequestsReport,
   getMechanicPerformance,
+  getSettings,
+  updateSettings,
 };

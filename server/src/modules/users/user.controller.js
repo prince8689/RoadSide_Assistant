@@ -139,6 +139,63 @@ const deleteVehicle = async (req, res, next) => {
   }
 };
 
+/**
+ * PATCH /api/users/vehicles/:id/default
+ * Set a vehicle as default.
+ */
+const setDefaultVehicle = async (req, res, next) => {
+  try {
+    const vehicle = await userService.setDefaultVehicle(req.params.id, req.user.id);
+    return success(res, { vehicle }, 'Default vehicle updated successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// EMERGENCY CONTACT ENDPOINTS
+// ============================================
+
+const getEmergencyContact = async (req, res, next) => {
+  try {
+    const contact = await userService.getEmergencyContact(req.user.id);
+    return success(res, { contact }, 'Emergency contact fetched successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+const saveEmergencyContact = async (req, res, next) => {
+  try {
+    const contact = await userService.saveEmergencyContact(req.user.id, req.body);
+    return success(res, { contact }, 'Emergency contact saved successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// PREFERENCES ENDPOINTS
+// ============================================
+
+const getPreferences = async (req, res, next) => {
+  try {
+    const preferences = await userService.getPreferences(req.user.id);
+    return success(res, { preferences }, 'Preferences fetched successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updatePreferences = async (req, res, next) => {
+  try {
+    const preferences = await userService.updatePreferences(req.user.id, req.body);
+    return success(res, { preferences }, 'Preferences updated successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -147,4 +204,9 @@ module.exports = {
   getSingleVehicle,
   updateVehicle,
   deleteVehicle,
+  setDefaultVehicle,
+  getEmergencyContact,
+  saveEmergencyContact,
+  getPreferences,
+  updatePreferences,
 };

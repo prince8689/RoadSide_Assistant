@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { FiHome, FiAlertCircle, FiList, FiSettings, FiLogOut, FiMenu, FiX } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaCarSide } from 'react-icons/fa';
@@ -13,6 +13,8 @@ import HomePage from './sections/HomePage';
 import RequestHelpPage from './sections/RequestHelpPage';
 import TrackingPage from './sections/TrackingPage';
 import MyRequestsPage from './sections/MyRequestsPage';
+import MyVehiclesPage from './sections/MyVehiclesPage';
+import UserProfilePage from './sections/UserProfilePage';
 
 const UserDashboard = () => {
   const { user } = useSelector((state) => state.auth);
@@ -21,6 +23,13 @@ const UserDashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', isSidebarCollapsed);
+  }, [isSidebarCollapsed]);
 
   useEffect(() => {
     if (!user) navigate('/login');
@@ -42,30 +51,30 @@ const UserDashboard = () => {
     { path: '/dashboard/profile', icon: <FiSettings />, label: 'Profile' },
   ];
 
-  const SidebarContent = () => (
+  const SidebarContent = ({ collapsed = false }) => (
     <>
-      <div className="p-6 mb-6">
-        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-          <span className="text-primary text-3xl">🚗</span> RoadAssist
-        </h2>
+      <div className={`p-6 mb-6 flex items-center overflow-hidden whitespace-nowrap transition-all duration-300 ${collapsed ? 'justify-center px-0' : 'gap-2'}`}>
+        <span className="text-primary text-3xl">🚗</span>
+        {!collapsed && <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-2xl font-bold text-white">RoadAssist</motion.h2>}
       </div>
       
-      <div className="flex-1 px-4 space-y-2 overflow-y-auto">
+      <div className="flex-1 px-4 space-y-2 overflow-y-auto overflow-x-hidden">
         {navItems.map(item => {
-          const isActive = location.pathname.startsWith(item.path);
+          const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
           return (
             <Link
               key={item.name}
               to={item.path}
+              title={collapsed ? item.name : undefined}
               onClick={() => setIsSidebarOpen(false)}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-3 py-3 rounded-xl transition-all duration-200 cursor-pointer ${collapsed ? 'justify-center px-0' : 'px-4'} ${
                 isActive 
                   ? 'bg-primary/10 text-primary border-l-4 border-primary font-semibold' 
                   : 'text-gray-400 hover:bg-white/5 hover:text-white'
               }`}
             >
-              <item.icon className="text-lg" />
-              {item.name}
+              <item.icon className="text-xl shrink-0" />
+              {!collapsed && <span className="whitespace-nowrap">{item.name}</span>}
             </Link>
           );
         })}
@@ -73,10 +82,11 @@ const UserDashboard = () => {
       <div className="p-4">
         <button
           onClick={logout}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:text-danger hover:bg-red-500/10 transition-all font-medium text-sm"
+          title={collapsed ? 'Logout' : undefined}
+          className={`w-full flex items-center py-3 rounded-xl text-gray-400 hover:text-danger hover:bg-red-500/10 transition-all font-medium text-sm ${collapsed ? 'justify-center px-0' : 'gap-3 px-4'}`}
         >
-          <FiLogOut className="text-lg" />
-          Logout
+          <FiLogOut className="text-xl shrink-0" />
+          {!collapsed && <span className="whitespace-nowrap">Logout</span>}
         </button>
       </div>
     </>
@@ -103,8 +113,8 @@ const UserDashboard = () => {
         </div>
       </nav>
 
-      <aside className="hidden md:flex flex-col w-64 bg-dark min-h-screen fixed left-0 top-0 z-30 shadow-2xl">
-        <SidebarContent />
+      <aside className={`hidden md:flex flex-col bg-dark min-h-screen fixed left-0 top-0 z-30 shadow-2xl transition-all duration-300 ${isSidebarCollapsed ? 'w-20' : 'w-64'}`}>
+        <SidebarContent collapsed={isSidebarCollapsed} />
       </aside>
 
       <AnimatePresence>
@@ -136,11 +146,19 @@ const UserDashboard = () => {
         )}
       </AnimatePresence>
 
-      <main className="flex-1 min-h-screen pt-16 md:pt-0 md:ml-64 pb-20 md:pb-0 relative">
+      <main className={`flex-1 min-h-screen pt-16 md:pt-0 pb-20 md:pb-0 relative transition-all duration-300 ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
         <header className="hidden md:flex justify-between items-center p-6 bg-white border-b border-gray-100 sticky top-0 z-20 shadow-sm">
-          <div className="text-dark">
-            <h2 className="text-xl font-bold">Welcome back!</h2>
-            <p className="text-sm text-gray-500">Need help? We're just a click away.</p>
+          <div className="flex items-center gap-4 text-dark">
+            <button 
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="text-2xl p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600"
+            >
+              <FiMenu />
+            </button>
+            <div>
+              <h2 className="text-xl font-bold">Welcome back!</h2>
+              <p className="text-sm text-gray-500">Need help? 24×7 Unique Toll-Free Helpline "1033" for road users on National Highways</p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <NotificationBell />
@@ -158,12 +176,13 @@ const UserDashboard = () => {
 
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
           <Routes>
+            <Route path="/" element={<Navigate to="home" replace />} />
             <Route path="/home" element={<HomePage />} />
             <Route path="/request" element={<RequestHelpPage />} />
             <Route path="/tracking" element={<TrackingPage />} />
             <Route path="/requests" element={<MyRequestsPage />} />
-            <Route path="/vehicles" element={<div>Vehicles Page Coming Soon</div>} />
-            <Route path="/profile" element={<div>Profile Page Coming Soon</div>} />
+            <Route path="/vehicles" element={<MyVehiclesPage />} />
+            <Route path="/profile" element={<UserProfilePage />} />
           </Routes>
         </div>
       </main>

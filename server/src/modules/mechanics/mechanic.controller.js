@@ -71,13 +71,13 @@ const updateProfile = async (req, res, next) => {
  * PATCH /api/mechanics/location
  * Update the mechanic's live location (DB + Redis cache).
  *
- * Body: { current_lat, current_lng }
+ * Body: { latitude, longitude }
  * Returns: 200 + { message, location }
  */
 const updateLocation = async (req, res, next) => {
   try {
-    const { current_lat, current_lng } = req.body;
-    const location = await mechanicService.updateLocation(req.user.id, current_lat, current_lng);
+    const { latitude, longitude } = req.body;
+    const location = await mechanicService.updateLocation(req.user.id, latitude, longitude);
 
     return success(res, { location }, 'Location updated successfully');
   } catch (error) {
@@ -198,6 +198,40 @@ const getMyStats = async (req, res, next) => {
   }
 };
 
+// ============================================
+// GET CUSTOM SERVICES PRICING
+// ============================================
+const getMyServices = async (req, res, next) => {
+  try {
+    const services = await mechanicService.getMechanicServices(req.user.id);
+    
+    res.status(200).json({
+      success: true,
+      data: { services },
+      message: 'Custom services pricing fetched successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// UPDATE CUSTOM SERVICES PRICING
+// ============================================
+const updateMyServices = async (req, res, next) => {
+  try {
+    const updatedServices = await mechanicService.updateMechanicServices(req.user.id, req.body.services);
+    
+    res.status(200).json({
+      success: true,
+      data: { services: updatedServices },
+      message: 'Custom services pricing updated successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   createProfile,
   getMyProfile,
@@ -207,4 +241,6 @@ module.exports = {
   getNearbyMechanics,
   getMechanicPublicProfile,
   getMyStats,
+  getMyServices,
+  updateMyServices,
 };

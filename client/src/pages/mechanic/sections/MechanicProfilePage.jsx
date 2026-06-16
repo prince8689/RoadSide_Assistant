@@ -3,16 +3,23 @@ import { toast } from 'react-hot-toast';
 import useMechanicStore from '../../../store/mechanicStore';
 import { createMechanicProfile, updateMechanicProfile } from '../../../api/mechanicApi';
 
+import { useNavigate } from 'react-router-dom';
+
 const MechanicProfilePage = () => {
+  const navigate = useNavigate();
   const { profile, fetchProfile } = useMechanicStore();
   const [form, setForm] = useState({
     business_name: '',
     experience_years: '',
     specializations: [],
     license_number: '',
-    aadhar_number: ''
+    aadhar_number: '',
+    phone: '',
+    working_hours_start: '09:00',
+    working_hours_end: '17:00'
   });
   const [submitting, setSubmitting] = useState(false);
+  const [customSpec, setCustomSpec] = useState('');
 
   useEffect(() => {
     if (profile) {
@@ -21,12 +28,20 @@ const MechanicProfilePage = () => {
         experience_years: profile.experience_years || '',
         specializations: profile.specializations || [],
         license_number: profile.documents?.license_number || '',
-        aadhar_number: profile.documents?.aadhar_number || ''
+        aadhar_number: profile.documents?.aadhar_number || '',
+        phone: profile.phone || '',
+        working_hours_start: profile.working_hours_start || '09:00',
+        working_hours_end: profile.working_hours_end || '17:00'
       });
     }
   }, [profile]);
 
-  const servicesList = ['Breakdown Repair', 'Towing', 'Battery Jump-start', 'Flat Tire Repair', 'Fuel Delivery'];
+  const servicesList = [
+    'Breakdown Repair', 'Towing', 'Battery Jump-start', 'Flat Tire Repair', 'Fuel Delivery',
+    'Lockout Service', 'Engine Diagnostics', 'AC Repair', 'Brake Service', 'Oil Change', 'Key Replacement',
+    'Transmission Repair', 'Suspension Service', 'Exhaust System', 'Wheel Alignment', 'Tire Balancing',
+    'Electrical System', 'Clutch Repair', 'Cooling System'
+  ];
 
   const handleCheckbox = (service) => {
     setForm(prev => {
@@ -35,6 +50,13 @@ const MechanicProfilePage = () => {
         : [...prev.specializations, service];
       return { ...prev, specializations: specs };
     });
+  };
+
+  const handleAddCustomSpec = () => {
+    if (customSpec.trim() && !form.specializations.includes(customSpec.trim())) {
+      setForm(prev => ({ ...prev, specializations: [...prev.specializations, customSpec.trim()] }));
+      setCustomSpec('');
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -51,10 +73,13 @@ const MechanicProfilePage = () => {
         business_name: form.business_name,
         experience_years: parseInt(form.experience_years),
         specializations: form.specializations,
+        phone: form.phone,
         documents: {
           license_number: form.license_number,
           aadhar_number: form.aadhar_number
-        }
+        },
+        working_hours_start: form.working_hours_start,
+        working_hours_end: form.working_hours_end
       };
 
       if (profile) {
@@ -62,9 +87,10 @@ const MechanicProfilePage = () => {
         toast.success('Profile updated successfully!');
       } else {
         await createMechanicProfile(payload);
-        toast.success('Profile submitted! Pending verification.');
+        toast.success('Profile created successfully!');
       }
       await fetchProfile();
+      navigate('/mechanic/home');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to save profile');
     } finally {
@@ -82,11 +108,22 @@ const MechanicProfilePage = () => {
       )}
 
       {profile && (
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <h1 className="text-3xl font-bold text-dark">My Profile</h1>
-          <span className={`px-4 py-1.5 rounded-full text-sm font-bold ${profile.is_verified ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-            {profile.is_verified ? '✓ Verified Partner' : '⏳ Verification Pending'}
-          </span>
+          
+          <div className="flex items-center gap-3">
+            <span className={`px-4 py-1.5 rounded-full text-sm font-bold ${profile.is_verified ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+              {profile.is_verified ? '✓ Verified Partner' : '⏳ Verification Pending'}
+            </span>
+            <span className="px-4 py-1.5 rounded-full text-sm font-bold bg-blue-100 text-blue-700">
+              Trust Score: {profile.trust_score ?? 100}/100
+            </span>
+            {profile.total_strikes > 0 && (
+              <span className="px-4 py-1.5 rounded-full text-sm font-bold bg-red-100 text-red-700">
+                Strikes: {profile.total_strikes}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -115,6 +152,37 @@ const MechanicProfilePage = () => {
                 onChange={e => setForm({...form, experience_years: e.target.value})}
               />
             </div>
+            <div>
+              <label className="block text-sm font-semibold text-dark mb-2">Mobile Number *</label>
+              <input
+                type="tel"
+                className="input-field"
+                placeholder="e.g. 9876543210"
+                value={form.phone}
+                onChange={e => setForm({...form, phone: e.target.value})}
+              />
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-dark mb-2">Available From (Start Time)</label>
+              <input
+                type="time"
+                className="input-field"
+                value={form.working_hours_start}
+                onChange={e => setForm({...form, working_hours_start: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-dark mb-2">Available To (End Time)</label>
+              <input
+                type="time"
+                className="input-field"
+                value={form.working_hours_end}
+                onChange={e => setForm({...form, working_hours_end: e.target.value})}
+              />
+            </div>
           </div>
 
           <div>
@@ -133,6 +201,34 @@ const MechanicProfilePage = () => {
                   <span className="text-sm font-medium text-dark">{srv}</span>
                 </label>
               ))}
+              {form.specializations.filter(s => !servicesList.includes(s)).map(srv => (
+                <label key={srv} className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all bg-orange-50 border-primary">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary"
+                    checked={true}
+                    onChange={() => handleCheckbox(srv)}
+                  />
+                  <span className="text-sm font-medium text-dark">{srv}</span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-4 flex gap-2 max-w-md">
+              <input 
+                type="text" 
+                className="input-field flex-1" 
+                placeholder="Add your own custom specialization..." 
+                value={customSpec} 
+                onChange={e => setCustomSpec(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddCustomSpec())}
+              />
+              <button 
+                type="button" 
+                onClick={handleAddCustomSpec} 
+                className="bg-dark text-white px-6 rounded-xl font-semibold hover:bg-black transition-colors"
+              >
+                Add
+              </button>
             </div>
           </div>
 
@@ -168,13 +264,8 @@ const MechanicProfilePage = () => {
               disabled={submitting}
               className="btn-primary w-full md:w-auto px-10 flex items-center justify-center gap-2"
             >
-              {submitting ? 'Saving...' : (profile ? 'Update Profile' : 'Submit Profile for Verification')}
+              {submitting ? 'Saving...' : (profile ? 'Update Profile' : 'Create Profile')}
             </button>
-            {!profile && (
-              <p className="text-xs text-muted mt-3 flex items-center gap-1">
-                ⚠️ Your profile will be reviewed by an admin. You can receive requests only after verification.
-              </p>
-            )}
           </div>
         </form>
       </div>
