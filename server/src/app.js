@@ -142,16 +142,31 @@ app.get('/api/health', async (req, res) => {
       redisStatus = 'disconnected';
     }
 
+    let recentErrors = [];
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const errorLogPath = path.join(__dirname, '../../logs/error.log');
+      if (fs.existsSync(errorLogPath)) {
+        const logs = fs.readFileSync(errorLogPath, 'utf8').split('\n');
+        recentErrors = logs.slice(-20); // get last 20 lines
+      }
+    } catch (e) {
+      recentErrors = [e.message];
+    }
+
     res.status(200).json({
       success: true,
       message: '🚗 Roadside Assist API is running!',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
+      smtpUser: process.env.SMTP_USER || 'Not set',
       services: {
         server: 'running',
         database: dbStatus,
         redis: redisStatus,
       },
+      recentErrors,
     });
   } catch (error) {
     res.status(503).json({
