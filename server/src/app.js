@@ -249,7 +249,7 @@ const startServer = async () => {
     });
 
     // 4. Start HTTP server (which runs both Express and Socket.io)
-    server.listen(PORT, () => {
+    server.listen(PORT, '0.0.0.0', () => {
       const geminiStatus = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_gemini_api_key_here' 
         ? '✅ Loaded' 
         : '⚠️ Missing/Placeholder';
