@@ -24,6 +24,9 @@ const { registerSchema, sendOtpSchema, verifyOtpSchema, loginSchema, resetPasswo
 
 // ---- Public Routes (no authentication required) ----
 
+// Check Email
+router.get('/check-email', authController.checkEmail);
+
 // Send OTP — validates body with sendOtpSchema before hitting controller
 router.post('/send-otp', validate(sendOtpSchema), authController.sendOtp);
 

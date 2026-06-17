@@ -260,7 +260,7 @@ const registerUser = async (userData) => {
         [JSON.stringify([{ type: 'aadhar', number: aadharDoc.number }])]
       );
       if (aadharCheck.rows.length > 0) {
-        throw new AppError('This Aadhar Number is already registered with another mechanic', 409);
+        throw new AppError('This Aadhar Number is already in use by another mechanic', 409);
       }
     }
   }

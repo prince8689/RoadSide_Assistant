@@ -48,26 +48,26 @@ const LoginPage = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-dark via-secondary to-dark flex items-center justify-center p-4 overflow-hidden">
       {/* Animated background circles */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none hidden sm:block">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary opacity-10 rounded-full animate-pulse-ring" />
         <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-primary opacity-5 rounded-full animate-pulse" />
       </div>
 
-      <div className="w-full max-w-md z-10 relative">
+      <div className="w-full max-w-md mx-4 sm:mx-auto z-10 relative">
         {/* Logo Section */}
         <div className="text-center mb-6 sm:mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 bg-primary rounded-xl sm:rounded-2xl mb-3 sm:mb-4 shadow-lg">
-            <span className="text-2xl sm:text-3xl text-white">🚗</span>
+            <span className="text-xl sm:text-3xl text-white">🚗</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-wide">RoadAssist</h1>
-          <p className="text-gray-400 mt-2 text-sm">Welcome back to the platform</p>
+          <h1 className="text-xl sm:text-3xl font-bold text-white tracking-wide">RoadAssist</h1>
+          <p className="text-gray-400 mt-2 text-xs sm:text-sm">Welcome back to the platform</p>
         </div>
 
         {/* Card Section */}
-        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-6 sm:p-8 relative min-h-[400px]">
+        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl p-6 sm:p-10 relative min-h-[400px]">
               <motion.div key="step1" variants={pageVariants} initial="initial" animate="animate" exit="exit">
-                <h2 className="text-2xl font-bold text-dark mb-2">Welcome back</h2>
-                <p className="text-muted mb-6">Sign in to your account</p>
+                <h2 className="text-xl sm:text-2xl font-bold text-dark mb-2">Welcome back</h2>
+                <p className="text-sm sm:text-base text-muted mb-6">Sign in to your account</p>
 
                 <form onSubmit={handleLogin} className="space-y-5">
                   <div>

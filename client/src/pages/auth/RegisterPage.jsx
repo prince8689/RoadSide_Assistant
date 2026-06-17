@@ -8,6 +8,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { sendOTPThunk, verifyOTPThunk, registerThunk, clearError, resetOtpState } from '../../store/authStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import TermsModal from '../../components/common/TermsModal';
+import { checkEmail } from '../../api/authApi';
 
 const RegisterPage = () => {
   const [step, setStep] = useState(1);
@@ -21,6 +22,12 @@ const RegisterPage = () => {
   const [agreed, setAgreed] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [timer, setTimer] = useState(30);
+
+  // New states for error handling, duplicate email check, and success screen
+  const [emailExists, setEmailExists] = useState(false);
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
+  const [authError, setAuthError] = useState(null);
+  const [isRegistered, setIsRegistered] = useState(false);
 
   const dispatch = useDispatch();
   const { isLoading } = useSelector((state) => state.auth);
@@ -55,9 +62,28 @@ const RegisterPage = () => {
   };
   const strength = getPasswordStrength(form.password);
 
+  // Check email exists before sending OTP
+  const handleEmailBlur = async () => {
+    if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return;
+    try {
+      setIsCheckingEmail(true);
+      setEmailExists(false);
+      setAuthError(null);
+      const res = await checkEmail(form.email);
+      if (res.data?.data?.exists || res.data?.exists) {
+        setEmailExists(true);
+      }
+    } catch (err) {
+      console.error('Email check failed', err);
+    } finally {
+      setIsCheckingEmail(false);
+    }
+  };
+
   // Step 2 -> 3 (Send OTP)
   const handleSendOtp = async (e) => {
     if(e) e.preventDefault();
+    if (emailExists) return;
     if (!form.full_name || !form.email || !form.phone) return toast.error('Please fill all basic info');
     if (form.phone.replace('+91', '').length !== 10) return toast.error('Phone must be 10 digits');
     
@@ -131,12 +157,18 @@ const RegisterPage = () => {
     const result = await dispatch(registerThunk(payload));
 
     if (registerThunk.fulfilled.match(result)) {
-      toast.success('Registration successful!');
-      const user = result.payload.user || result.payload.data?.user;
-      if (user?.role === 'mechanic') navigate('/mechanic');
-      else navigate('/dashboard');
+      setAuthError(null);
+      setIsRegistered(true);
+      
+      // Auto redirect to login after 3 seconds
+      setTimeout(() => {
+        navigate('/login');
+      }, 3000);
+      
     } else {
-      toast.error(result.payload || 'Registration failed');
+      const errorMsg = result.payload || 'Registration failed';
+      setAuthError(errorMsg);
+      // Let the user stay on the form to see the specific error
     }
   };
 
@@ -153,11 +185,11 @@ const RegisterPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-dark to-secondary flex items-center justify-center p-4 sm:p-6 overflow-hidden font-sans">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none hidden sm:block">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary opacity-10 rounded-full animate-pulse-ring" />
       </div>
 
-      <div className="w-full max-w-xl z-10 relative">
+      <div className="w-full max-w-xl mx-4 sm:mx-auto z-10 relative">
         <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden min-h-[500px] relative">
           
           {/* Progress Bar */}
@@ -168,7 +200,7 @@ const RegisterPage = () => {
           <AnimatePresence mode="wait">
             
             {/* STEP 1: ROLE SELECTION */}
-            {step === 1 && (
+            {step === 1 && !isRegistered && !authError?.toLowerCase().includes('already registered') && (
               <motion.div key="step1" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col justify-center">
                 <div className="text-center mb-8">
                   <span className="text-4xl">👋</span>
@@ -207,7 +239,7 @@ const RegisterPage = () => {
             )}
 
             {/* STEP 2: BASIC INFO */}
-            {step === 2 && (
+            {step === 2 && !isRegistered && !authError?.toLowerCase().includes('already registered') && (
               <motion.div key="step2" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col justify-center">
                 <button type="button" onClick={() => setStep(1)} className="absolute top-6 left-6 text-gray-400 hover:text-primary flex items-center gap-1 text-sm font-medium"><FiArrowLeft/> Back</button>
                 <h2 className="text-2xl font-bold text-dark mb-2 mt-4">Basic Information</h2>
@@ -220,13 +252,20 @@ const RegisterPage = () => {
                   </div>
                   <div className="relative">
                     <FiMail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg" />
-                    <input type="email" placeholder="Email Address" required value={form.email} onChange={e => setForm({...form, email: e.target.value})} className="input-field pl-12" />
+                    <input type="email" placeholder="Email Address" required value={form.email} onChange={e => {setForm({...form, email: e.target.value}); setEmailExists(false); setAuthError(null);}} onBlur={handleEmailBlur} className={`input-field pl-12 ${emailExists ? 'border-red-500 ring-1 ring-red-500 bg-red-50' : ''}`} />
+                    {isCheckingEmail && <div className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />}
                   </div>
+                  {emailExists && (
+                    <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="text-sm mt-1 px-1">
+                      <span className="text-red-500 font-medium">This email is already registered.</span>
+                      <Link to="/login" className="text-primary font-bold hover:underline ml-2">Go to Login &rarr;</Link>
+                    </motion.div>
+                  )}
                   <div className="relative flex">
                     <span className="inline-flex items-center px-4 rounded-l-xl border border-r-0 border-gray-200 bg-gray-50 text-gray-500 font-medium">+91</span>
                     <input type="tel" placeholder="Phone Number" required maxLength="10" value={form.phone.replace('+91', '')} onChange={e => setForm({...form, phone: e.target.value})} className="input-field rounded-l-none pl-4" />
                   </div>
-                  <button type="submit" disabled={isLoading} className="btn-primary w-full mt-4 h-12 flex justify-center items-center">
+                  <button type="submit" disabled={isLoading || emailExists || isCheckingEmail} className="btn-primary w-full mt-4 h-12 flex justify-center items-center">
                     {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Send OTP'}
                   </button>
                 </form>
@@ -234,7 +273,7 @@ const RegisterPage = () => {
             )}
 
             {/* STEP 3: OTP VERIFICATION */}
-            {step === 3 && (
+            {step === 3 && !isRegistered && !authError?.toLowerCase().includes('already registered') && (
               <motion.div key="step3" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col items-center justify-center">
                 <button type="button" onClick={() => setStep(2)} className="absolute top-6 left-6 text-gray-400 hover:text-primary flex items-center gap-1 text-sm font-medium"><FiArrowLeft/> Back</button>
                 <div className="w-16 h-16 bg-orange-100 text-primary rounded-full flex items-center justify-center mb-4">
@@ -260,7 +299,7 @@ const RegisterPage = () => {
             )}
 
             {/* STEP 4: PASSWORD SETUP */}
-            {step === 4 && (
+            {step === 4 && !isRegistered && !authError?.toLowerCase().includes('already registered') && (
               <motion.div key="step4" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col justify-center">
                 <button type="button" onClick={() => setStep(3)} className="absolute top-6 left-6 text-gray-400 hover:text-primary flex items-center gap-1 text-sm font-medium"><FiArrowLeft/> Back</button>
                 <div className="inline-flex items-center gap-2 mb-2 mt-4 text-green-500 font-semibold"><FiCheckCircle /> Email Verified</div>
@@ -291,6 +330,12 @@ const RegisterPage = () => {
                     <label htmlFor="terms" className="text-sm text-gray-600">I agree to the <button type="button" onClick={() => setShowTerms(true)} className="text-primary hover:underline">Terms & Conditions</button></label>
                   </div>
 
+                  {authError && !authError.toLowerCase().includes('already registered') && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm mb-4">
+                      {authError}
+                    </motion.div>
+                  )}
+
                   <button type="submit" disabled={isLoading} className="btn-primary w-full mt-6 h-12 flex justify-center items-center">
                     {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : (form.role === 'mechanic' ? 'Continue to Profile' : 'Complete Registration')}
                   </button>
@@ -299,7 +344,7 @@ const RegisterPage = () => {
             )}
 
             {/* STEP 5: MECHANIC DETAILS (Only for Mechanics) */}
-            {step === 5 && form.role === 'mechanic' && (
+            {step === 5 && form.role === 'mechanic' && !isRegistered && !authError?.toLowerCase().includes('already registered') && (
               <motion.div key="step5" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col justify-center overflow-y-auto">
                 <button type="button" onClick={() => setStep(4)} className="absolute top-6 left-6 text-gray-400 hover:text-primary flex items-center gap-1 text-sm font-medium"><FiArrowLeft/> Back</button>
                 <h2 className="text-2xl font-bold text-dark mb-2 mt-6">Professional Profile</h2>
@@ -338,10 +383,60 @@ const RegisterPage = () => {
                     <input type="text" placeholder="12-digit Aadhar (for verification)" required minLength="12" maxLength="12" value={form.aadhar_number} onChange={e => setForm({...form, aadhar_number: e.target.value})} className="input-field" />
                   </div>
 
+                  {authError && !authError.toLowerCase().includes('already registered') && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm mb-4">
+                      {authError}
+                    </motion.div>
+                  )}
+
                   <button type="submit" disabled={isLoading} className="btn-primary w-full h-12 flex justify-center items-center mt-4">
                     {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'Complete Registration'}
                   </button>
                 </form>
+              </motion.div>
+            )}
+
+            {/* ERROR VIEW: ALREADY REGISTERED (409) */}
+            {authError && authError.toLowerCase().includes('already registered') && !isRegistered && (
+              <motion.div key="stepError" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col items-center justify-center text-center">
+                <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-md">
+                  <span className="text-4xl">😅</span>
+                </div>
+                <h2 className="text-2xl font-bold text-dark mb-3">Looks like you're already registered!</h2>
+                <p className="text-gray-500 mb-8 max-w-sm mx-auto">
+                  The email or phone number you provided is already linked to an account.
+                </p>
+                
+                <Link to="/login" className="w-full">
+                  <button type="button" className="btn-primary w-full h-12 text-lg">
+                    Go to Login &rarr;
+                  </button>
+                </Link>
+                <button type="button" onClick={() => { setAuthError(null); setStep(2); }} className="mt-4 text-sm font-semibold text-gray-500 hover:text-dark">
+                  Use a different email
+                </button>
+              </motion.div>
+            )}
+
+            {/* SUCCESS VIEW */}
+            {isRegistered && (
+              <motion.div key="stepSuccess" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="p-8 flex flex-col items-center justify-center text-center">
+                <div className="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-md">
+                  <FiCheckCircle className="text-4xl" />
+                </div>
+                <h2 className="text-2xl font-bold text-dark mb-3">Registration Successful! 🎉</h2>
+                <p className="text-gray-500 mb-8 max-w-sm mx-auto">
+                  Your account has been created successfully. You can now log in to the platform.
+                </p>
+                
+                <Link to="/login" className="w-full">
+                  <button type="button" className="btn-primary w-full h-12 text-lg">
+                    Go to Login &rarr;
+                  </button>
+                </Link>
+                <p className="text-xs text-gray-400 mt-4">
+                  Redirecting automatically in a few seconds...
+                </p>
               </motion.div>
             )}
 

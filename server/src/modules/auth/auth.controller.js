@@ -12,6 +12,26 @@ const { query } = require('../../config/db');
 const { AppError } = require('../../middleware/errorHandler');
 
 /**
+ * GET /api/auth/check-email
+ * Check if an email is already registered.
+ *
+ * Query: ?email=...
+ * Returns: 200 + { success: true, data: { exists: boolean } }
+ */
+const checkEmail = async (req, res, next) => {
+  try {
+    const { email } = req.query;
+    if (!email) {
+      throw new AppError('Email is required', 400);
+    }
+    const result = await query('SELECT id FROM users WHERE email = $1', [email]);
+    return success(res, { exists: result.rows.length > 0 }, 'Email check successful', 200);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * POST /api/auth/send-otp
  * Send OTP for registration or login to verify email.
  *
@@ -242,6 +262,7 @@ const changePassword = async (req, res, next) => {
 };
 
 module.exports = {
+  checkEmail,
   sendOtp,
   verifyOtp,
   register,
