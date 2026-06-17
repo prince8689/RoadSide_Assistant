@@ -111,7 +111,7 @@ const sendOTP = async (email, otp, name) => {
     `;
 
     // Bypass Render's SMTP Block by using Brevo's HTTP REST API
-    if (process.env.SMTP_PASS && process.env.SMTP_PASS.startsWith('xsmtpsib-')) {
+    if (process.env.SMTP_PASS && (process.env.SMTP_PASS.startsWith('xsmtpsib-') || process.env.SMTP_PASS.startsWith('xkeysib-'))) {
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
