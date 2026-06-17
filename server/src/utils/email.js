@@ -112,6 +112,12 @@ const sendOTP = async (email, otp, name) => {
 
     // Bypass Render's SMTP Block by using Brevo's HTTP REST API
     if (process.env.SMTP_PASS && (process.env.SMTP_PASS.startsWith('xsmtpsib-') || process.env.SMTP_PASS.startsWith('xkeysib-'))) {
+      
+      // Extract clean email from SMTP_FROM (e.g., "Name <email@domain.com>" -> "email@domain.com")
+      let cleanSenderEmail = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@roadassist.com";
+      const match = cleanSenderEmail.match(/<([^>]+)>/);
+      if (match) cleanSenderEmail = match[1];
+
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
@@ -122,7 +128,7 @@ const sendOTP = async (email, otp, name) => {
         body: JSON.stringify({
           sender: { 
             name: "Roadside Assistant", 
-            email: process.env.SMTP_USER || "noreply@roadassist.com" 
+            email: cleanSenderEmail 
           },
           to: [{ email: email, name: name || 'User' }],
           subject: `Your Verification Code: ${otp}`,
