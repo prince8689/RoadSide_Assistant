@@ -79,7 +79,7 @@ const UserDashboard = () => {
           );
         })}
       </div>
-      <div className="p-4">
+      <div className="p-4 pb-24 md:pb-4 border-t border-gray-800 md:border-none">
         <button
           onClick={logout}
           title={collapsed ? 'Logout' : undefined}
