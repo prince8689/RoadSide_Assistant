@@ -51,6 +51,7 @@ router.patch(
   validate(updateUserStatusSchema),
   adminController.updateUserStatus
 );
+router.delete('/users/:id', adminController.deleteUser);
 
 // ---- Mechanic Verification ----
 router.get('/mechanics/pending', adminController.getPendingMechanics);

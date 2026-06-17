@@ -225,6 +225,35 @@ const updateUserStatus = async (userId, isActive, adminId) => {
   return updatedUser;
 };
 
+/**
+ * Delete a user completely from the database.
+ * Only allowed if the user is currently inactive.
+ * 
+ * @param {string} userId - User ID to delete
+ * @param {string} adminId - Admin ID requesting deletion
+ */
+const deleteUser = async (userId, adminId) => {
+  if (userId === adminId) {
+    throw new AppError('Cannot delete your own admin account', 403);
+  }
+
+  const userResult = await query('SELECT id, is_active, email FROM users WHERE id = $1', [userId]);
+  
+  if (userResult.rows.length === 0) {
+    throw new AppError('User not found', 404);
+  }
+
+  if (userResult.rows[0].is_active) {
+    throw new AppError('Cannot delete an active user. Please deactivate them first.', 400);
+  }
+
+  // Completely remove the user. 
+  // ON DELETE CASCADE will handle mechanic_profiles, vehicles, etc.
+  await query('DELETE FROM users WHERE id = $1', [userId]);
+
+  return { message: `User ${userResult.rows[0].email} permanently deleted` };
+};
+
 // ============================================
 // ─── MECHANIC VERIFICATION ─────────────────
 // ============================================
@@ -828,4 +857,5 @@ module.exports = {
   getMechanicPerformance,
   getSettings,
   updateSettings,
+  deleteUser,
 };

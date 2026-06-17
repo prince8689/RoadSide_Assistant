@@ -8,6 +8,7 @@ export const getAllUsers = (params) => api.get('/admin/users', { params });
 export const getUserDetails = (id) => api.get(`/admin/users/${id}`);
 export const updateUserStatus = (id, isActive) =>
   api.patch(`/admin/users/${id}/status`, { is_active: isActive });
+export const deleteUser = (id) => api.delete(`/admin/users/${id}`);
 
 // Mechanics
 export const getPendingMechanics = () => api.get('/admin/mechanics/pending');

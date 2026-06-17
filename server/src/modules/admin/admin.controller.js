@@ -107,6 +107,22 @@ const updateUserStatus = async (req, res, next) => {
   }
 };
 
+/**
+ * DELETE /api/admin/users/:id
+ * Delete a user completely from the database.
+ * Only allowed if user is inactive.
+ * 
+ * Returns: 200 + success message
+ */
+const deleteUser = async (req, res, next) => {
+  try {
+    const result = await adminService.deleteUser(req.params.id, req.user.id);
+    return success(res, null, result.message);
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ============================================
 // MECHANIC VERIFICATION
 // ============================================
@@ -352,4 +368,5 @@ module.exports = {
   getMechanicPerformance,
   getSettings,
   updateSettings,
+  deleteUser,
 };

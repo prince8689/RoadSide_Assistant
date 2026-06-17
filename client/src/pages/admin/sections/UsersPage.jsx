@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { FiSearch, FiFilter, FiEye, FiSlash, FiCheck } from 'react-icons/fi';
+import { FiSearch, FiFilter, FiEye, FiSlash, FiCheck, FiTrash2 } from 'react-icons/fi';
 import { toast } from 'react-hot-toast';
 import useAdminStore from '../../../store/adminStore';
-import { updateUserStatus } from '../../../api/adminApi';
+import { updateUserStatus, deleteUser } from '../../../api/adminApi';
 import DataTable from '../../../components/admin/DataTable';
 import StatusBadge from '../../../components/admin/StatusBadge';
 import Pagination from '../../../components/admin/Pagination';
@@ -49,6 +49,21 @@ const UsersPage = () => {
       }
     } catch (err) {
       toast.error(`Failed to ${action} user`);
+    }
+  };
+
+  const handleDeleteUser = async (id) => {
+    if (!window.confirm('Are you sure you want to PERMANENTLY DELETE this user? This action cannot be undone.')) return;
+    
+    try {
+      await deleteUser(id);
+      toast.success('User permanently deleted');
+      loadData();
+      if (selectedUser?.id === id) {
+        setIsModalOpen(false);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete user');
     }
   };
 
@@ -111,6 +126,15 @@ const UsersPage = () => {
               title="Activate"
             >
               <FiCheck />
+            </button>
+          )}
+          {!row.is_active && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); handleDeleteUser(row.id); }}
+              className="p-1.5 text-red-700 bg-red-100 rounded hover:bg-red-200 transition"
+              title="Delete Permanently"
+            >
+              <FiTrash2 />
             </button>
           )}
         </div>
@@ -192,10 +216,18 @@ const UsersPage = () => {
               </div>
             </div>
             
-            <div className="flex justify-end pt-4 border-t border-gray-100">
+            <div className="flex justify-end pt-4 border-t border-gray-100 gap-2">
+              {!selectedUser.is_active && (
+                <button 
+                  onClick={() => handleDeleteUser(selectedUser.id)}
+                  className="px-4 py-2 rounded-lg font-bold text-sm bg-red-100 text-red-700 hover:bg-red-200"
+                >
+                  Delete Permanently
+                </button>
+              )}
               <button 
                 onClick={() => handleStatusChange(selectedUser.id, selectedUser.is_active)}
-                className={`px-4 py-2 rounded-lg font-bold text-sm ${selectedUser.is_active ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
+                className={`px-4 py-2 rounded-lg font-bold text-sm ${selectedUser.is_active ? 'bg-orange-50 text-orange-600 hover:bg-orange-100' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
               >
                 {selectedUser.is_active ? 'Deactivate Account' : 'Activate Account'}
               </button>
