@@ -126,6 +126,19 @@ export const calculateDistance = (lat1, lng1, lat2, lng2) => {
  */
 export const getAddressFromCoords = async (lat, lng) => {
   try {
+    if (window.google && window.google.maps && window.google.maps.Geocoder) {
+      return await new Promise((resolve) => {
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+          if (status === 'OK' && results[0]) {
+            resolve(results[0].formatted_address);
+          } else {
+            resolve(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+          }
+        });
+      });
+    }
+
     const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
     if (!apiKey || apiKey === 'your_google_maps_api_key_here') {
       return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
@@ -151,6 +164,19 @@ export const getAddressFromCoords = async (lat, lng) => {
  */
 export const getCoordsFromAddress = async (address) => {
   try {
+    if (window.google && window.google.maps && window.google.maps.Geocoder) {
+      return await new Promise((resolve) => {
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ address: address }, (results, status) => {
+          if (status === 'OK' && results[0]) {
+            resolve({ lat: results[0].geometry.location.lat(), lng: results[0].geometry.location.lng() });
+          } else {
+            resolve(null);
+          }
+        });
+      });
+    }
+
     const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
     if (!apiKey || apiKey === 'your_google_maps_api_key_here') return null;
     
