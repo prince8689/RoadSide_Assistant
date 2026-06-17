@@ -9,6 +9,17 @@ class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error('Error caught:', error, info);
+    
+    // Auto-reload for Vite dynamic import failures (chunk missing due to new deploy)
+    const isChunkLoadError = error?.message?.includes('Failed to fetch dynamically imported module') || error?.message?.includes('Load failed');
+    
+    if (isChunkLoadError) {
+      const reloadKey = 'hasReloadedForChunkError';
+      if (!sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, 'true');
+        window.location.reload();
+      }
+    }
   }
 
   render() {
