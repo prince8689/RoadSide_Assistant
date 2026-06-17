@@ -83,7 +83,21 @@ const RegisterPage = () => {
   // Step 2 -> 3 (Send OTP)
   const handleSendOtp = async (e) => {
     if(e) e.preventDefault();
-    if (emailExists) return;
+    
+    // Explicitly check email existence right when button is clicked
+    try {
+      setIsCheckingEmail(true);
+      const res = await checkEmail(form.email);
+      if (res.data?.data?.exists || res.data?.exists) {
+        setEmailExists(true);
+        setIsCheckingEmail(false);
+        return; // Stop here and show the inline error
+      }
+    } catch (err) {
+      console.error('Email check failed', err);
+    }
+    setIsCheckingEmail(false);
+
     if (!form.full_name || !form.email || !form.phone) return toast.error('Please fill all basic info');
     if (form.phone.replace('+91', '').length !== 10) return toast.error('Phone must be 10 digits');
     
@@ -96,7 +110,12 @@ const RegisterPage = () => {
       setStep(3);
       setTimer(30);
     } else {
-      toast.error(result.payload || 'Failed to send OTP');
+      const errorMsg = result.payload || 'Failed to send OTP';
+      if (errorMsg.toLowerCase().includes('already registered')) {
+        setEmailExists(true);
+      } else {
+        toast.error(errorMsg);
+      }
     }
   };
 
@@ -424,9 +443,9 @@ const RegisterPage = () => {
                 <div className="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-md">
                   <FiCheckCircle className="text-4xl" />
                 </div>
-                <h2 className="text-2xl font-bold text-dark mb-3">Registration Successful! 🎉</h2>
+                <h2 className="text-2xl font-bold text-dark mb-3">Welcome to RoadAssist Platform! 🎉</h2>
                 <p className="text-gray-500 mb-8 max-w-sm mx-auto">
-                  Your account has been created successfully. You can now log in to the platform.
+                  Your registration is complete. We are excited to have you on board!
                 </p>
                 
                 <Link to="/login" className="w-full">
