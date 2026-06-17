@@ -37,12 +37,51 @@ pool.on('error', (err) => {
 const connectDB = async () => {
   try {
     const client = await pool.connect();
-    
     // Auto-migrate the enum value if it's missing (Postgres 12+)
     try {
       await client.query("ALTER TYPE request_status ADD VALUE IF NOT EXISTS 'awaiting_payment'");
+      await client.query("ALTER TYPE request_status ADD VALUE IF NOT EXISTS 'payment_verification'");
     } catch (e) {
       if (e.code !== '42710') console.error('Enum alter error:', e.message);
+    }
+
+    // Auto-migrate missing tables and columns
+    try {
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;`);
+      
+      await client.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT false;`);
+      await client.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS vehicle_type VARCHAR(30) DEFAULT 'car';`);
+      await client.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS image_url TEXT;`);
+      await client.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS chassis_number VARCHAR(100);`);
+      await client.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS engine_number VARCHAR(100);`);
+      await client.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS insurance_expiry_date DATE;`);
+      await client.query(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS nickname VARCHAR(100);`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS emergency_contacts (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+          contact_name VARCHAR(100) NOT NULL,
+          relationship VARCHAR(50),
+          phone VARCHAR(20) NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS user_preferences (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+          request_updates BOOLEAN DEFAULT true,
+          mechanic_alerts BOOLEAN DEFAULT true,
+          service_completed BOOLEAN DEFAULT true,
+          promotions BOOLEAN DEFAULT false,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+      console.log('✅ Auto-migrations completed successfully.');
+    } catch (e) {
+      console.error('Auto-migration error:', e.message);
     }
 
     const result = await client.query('SELECT NOW() AS current_time');

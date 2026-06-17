@@ -63,9 +63,6 @@ CREATE TYPE notification_type AS ENUM (
 -- ============================================================
 -- TABLE 1: users
 -- ============================================================
--- Central user table for all three roles: user, mechanic, admin
--- Email is unique and used for login. Phone is optional but unique if provided.
--- ============================================================
 CREATE TABLE users (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   full_name        VARCHAR(100) NOT NULL,
@@ -73,51 +70,77 @@ CREATE TABLE users (
   phone            VARCHAR(20) UNIQUE,
   password_hash    VARCHAR(255) NOT NULL,
   role             user_role NOT NULL DEFAULT 'user',
-  profile_picture  TEXT,                              -- URL to profile image
+  profile_picture  TEXT,
+  address          TEXT,
   is_active        BOOLEAN NOT NULL DEFAULT true,
   created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- ============================================================
--- TABLE 2: vehicles
+-- TABLE 1.1: user_preferences
 -- ============================================================
--- Vehicles owned by users (role = 'user').
--- A user can have multiple vehicles. License plate is unique.
+CREATE TABLE user_preferences (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id          UUID REFERENCES users(id) ON DELETE CASCADE,
+  request_updates  BOOLEAN DEFAULT true,
+  mechanic_alerts  BOOLEAN DEFAULT true,
+  service_completed BOOLEAN DEFAULT true,
+  promotions       BOOLEAN DEFAULT false,
+  updated_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================
+-- TABLE 1.2: emergency_contacts
+-- ============================================================
+CREATE TABLE emergency_contacts (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id          UUID REFERENCES users(id) ON DELETE CASCADE,
+  contact_name     VARCHAR(100) NOT NULL,
+  relationship     VARCHAR(50),
+  phone            VARCHAR(20) NOT NULL,
+  created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================================
+-- TABLE 2: vehicles
 -- ============================================================
 CREATE TABLE vehicles (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  make             VARCHAR(50) NOT NULL,              -- e.g., Toyota, Honda
-  model            VARCHAR(50) NOT NULL,              -- e.g., Corolla, Civic
+  make             VARCHAR(50) NOT NULL,
+  model            VARCHAR(50) NOT NULL,
   year             INTEGER NOT NULL CHECK (year >= 1900 AND year <= 2100),
   license_plate    VARCHAR(20) NOT NULL UNIQUE,
   fuel_type        fuel_type NOT NULL DEFAULT 'petrol',
   color            VARCHAR(30),
+  vehicle_type     VARCHAR(30) DEFAULT 'car',
+  is_default       BOOLEAN DEFAULT false,
+  image_url        TEXT,
+  chassis_number   VARCHAR(100),
+  engine_number    VARCHAR(100),
+  insurance_expiry_date DATE,
+  nickname         VARCHAR(100),
   created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 -- ============================================================
 -- TABLE 3: mechanic_profiles
 -- ============================================================
--- Extended profile for users with role = 'mechanic'.
--- One-to-one with users table. Stores location, rating, documents.
--- documents is JSONB: [{ "type": "license", "url": "...", "verified": true }]
--- ============================================================
 CREATE TABLE mechanic_profiles (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id          UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   business_name    VARCHAR(150),
   experience_years INTEGER NOT NULL DEFAULT 0 CHECK (experience_years >= 0),
-  specializations  TEXT[] DEFAULT '{}',               -- Array: {'engine', 'electrical', 'tires'}
+  specializations  TEXT[] DEFAULT '{}',
   is_verified      BOOLEAN NOT NULL DEFAULT false,
   is_available     BOOLEAN NOT NULL DEFAULT false,
-  current_lat      DECIMAL(10, 8),                    -- Latitude: -90 to +90
-  current_lng      DECIMAL(11, 8),                    -- Longitude: -180 to +180
+  current_lat      DECIMAL(10, 8),
+  current_lng      DECIMAL(11, 8),
   rating           DECIMAL(3, 2) NOT NULL DEFAULT 0.00 CHECK (rating >= 0 AND rating <= 5),
   total_jobs       INTEGER NOT NULL DEFAULT 0 CHECK (total_jobs >= 0),
-  documents        JSONB DEFAULT '[]',                -- Uploaded verification docs
-  rejection_reason TEXT,                              -- Reason for verification rejection
+  documents        JSONB DEFAULT '[]',
+  rejection_reason TEXT,
   created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -125,15 +148,11 @@ CREATE TABLE mechanic_profiles (
 -- ============================================================
 -- TABLE 4: service_categories
 -- ============================================================
--- Predefined service types available on the platform.
--- slug is URL-friendly, unique identifier.
--- base_price is the starting price — final price may vary.
--- ============================================================
 CREATE TABLE service_categories (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name             VARCHAR(100) NOT NULL,
   slug             VARCHAR(100) NOT NULL UNIQUE,
-  icon             VARCHAR(50),                       -- Icon name (e.g., 'wrench', 'truck')
+  icon             VARCHAR(50),
   base_price       DECIMAL(10, 2) NOT NULL DEFAULT 0.00 CHECK (base_price >= 0),
   description      TEXT,
   is_active        BOOLEAN NOT NULL DEFAULT true,
