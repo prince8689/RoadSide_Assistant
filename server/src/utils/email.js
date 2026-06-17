@@ -69,20 +69,9 @@ const getFromAddress = () => {
 
 /**
  * Send an OTP verification code via email.
- *
- * @param {string} email - Recipient email address
- * @param {string} otp - 6-digit OTP code
- * @param {string} name - Recipient's name for personalization
- * @returns {Promise<{success: boolean}>} Success status
- * @throws {Error} If email sending fails
  */
 const sendOTP = async (email, otp, name) => {
   try {
-    const transporter = await createTransporter();
-
-    // Generate unique ID to prevent email threading/conversation merging in Gmail
-    const uniqueId = `<${Date.now()}.${Math.random().toString(36).substring(2)}@roadassist.com>`;
-    // Format current time for unique subject line
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     const html = `
@@ -92,185 +81,80 @@ const sendOTP = async (email, otp, name) => {
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
-        body {
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-          background-color: #f3f4f6;
-          margin: 0;
-          padding: 20px;
-          -webkit-font-smoothing: antialiased;
-        }
-        .wrapper {
-          max-width: 500px;
-          margin: 0 auto;
-          background-color: #ffffff;
-          border-radius: 16px;
-          overflow: hidden;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        }
-        .header {
-          background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
-          padding: 30px 20px;
-          text-align: center;
-          color: #ffffff;
-        }
-        .logo-placeholder {
-          background-color: rgba(255, 255, 255, 0.2);
-          width: 60px;
-          height: 60px;
-          border-radius: 50%;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 28px;
-          margin-bottom: 12px;
-          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-        }
-        .title {
-          font-size: 22px;
-          font-weight: 700;
-          margin: 0;
-          letter-spacing: 0.5px;
-        }
-        .content {
-          padding: 40px 30px;
-          text-align: center;
-          color: #1f2937;
-        }
-        .greeting {
-          font-size: 18px;
-          font-weight: 600;
-          margin-bottom: 16px;
-          color: #111827;
-        }
-        .message {
-          font-size: 15px;
-          line-height: 1.6;
-          color: #4b5563;
-          margin-bottom: 24px;
-        }
-        .otp-box {
-          background: #f8fafc;
-          border: 2px solid #e2e8f0;
-          border-radius: 12px;
-          padding: 20px;
-          margin: 24px 0;
-          box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
-        }
-        .otp-label {
-          font-size: 12px;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-          color: #64748b;
-          margin-bottom: 8px;
-          font-weight: 600;
-        }
-        .otp-code {
-          font-size: 40px;
-          font-weight: 800;
-          letter-spacing: 8px;
-          color: #4f46e5;
-          margin: 0;
-          font-family: 'Monaco', 'Consolas', monospace;
-        }
-        .security-note {
-          background-color: #fef2f2;
-          border-left: 4px solid #ef4444;
-          padding: 12px 16px;
-          border-radius: 6px;
-          font-size: 13px;
-          color: #991b1b;
-          text-align: left;
-          margin-top: 24px;
-          line-height: 1.5;
-        }
-        .footer {
-          background-color: #f9fafb;
-          padding: 24px;
-          text-align: center;
-          font-size: 12px;
-          color: #6b7280;
-          border-top: 1px solid #f3f4f6;
-        }
-        .footer-links {
-          margin-bottom: 12px;
-        }
-        .footer-links a {
-          color: #3b82f6;
-          text-decoration: none;
-          margin: 0 8px;
-        }
-        @media only screen and (max-width: 480px) {
-          .wrapper { width: 100%; border-radius: 8px; }
-          .content { padding: 30px 20px; }
-          .otp-code { font-size: 32px; letter-spacing: 6px; }
-        }
+        body { font-family: 'Inter', Arial, sans-serif; background-color: #f3f4f6; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; padding: 40px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .logo { font-size: 24px; font-weight: 800; color: #1e40af; }
+        .otp-box { background: #eff6ff; border: 2px dashed #3b82f6; border-radius: 8px; padding: 20px; text-align: center; margin: 30px 0; }
+        .otp-code { font-size: 36px; font-weight: 800; color: #1d4ed8; letter-spacing: 4px; margin: 0; }
+        .footer { text-align: center; color: #6b7280; font-size: 14px; margin-top: 40px; }
       </style>
     </head>
     <body>
-      <div class="wrapper">
+      <div class="container">
         <div class="header">
-          <div class="logo-placeholder">🚗</div>
-          <h1 class="title">Roadside Assistant</h1>
+          <div class="logo">🚗 Roadside Assistant</div>
         </div>
-        <div class="content">
-          <div class="greeting">Hello ${name || 'there'},</div>
-          <div class="message">
-            We received a request to verify your email address. Please use the verification code below to complete your secure setup.
-          </div>
-
-          <div class="otp-box">
-            <div class="otp-label">Your Verification Code</div>
-            <p class="otp-code">${otp}</p>
-          </div>
-
-          <div class="message" style="margin-bottom: 0;">
-            <strong style="color:#dc2626;">Expires in 15 minutes.</strong><br>
-            For your protection, please do not share this code with anyone.
-          </div>
-
-          <div class="security-note">
-            <strong>Security Alert:</strong> If you did not request this verification code, please ignore this email or contact support immediately. Our team will never ask for your password or OTP.
-          </div>
+        <p>Hi ${name || 'there'},</p>
+        <p>Your verification code is ready. Use the OTP below to complete your authentication process.</p>
+        <div class="otp-box">
+          <p class="otp-code">${otp}</p>
         </div>
+        <p>This code will expire in <strong>15 minutes</strong>.</p>
         <div class="footer">
-          <div class="footer-links">
-            <a href="#">Help Center</a> | <a href="#">Privacy Policy</a> | <a href="#">Terms of Service</a>
-          </div>
-          <p>&copy; ${new Date().getFullYear()} Roadside Assistant. All rights reserved.</p>
+          <p>If you didn't request this code, you can safely ignore this email.</p>
+          <p>Generated at: ${timeStr}</p>
         </div>
       </div>
     </body>
     </html>
     `;
 
-    const mailOptions = {
-      from: getFromAddress(),
-      to: email,
-      subject: `Verification Code: ${otp} [${timeStr}]`,
-      text: `Hello ${name || 'there'}, your verification code is: ${otp}. It expires in 15 minutes. Do not share this code.`,
-      html,
-      headers: {
-        'Message-ID': uniqueId,
-        'References': uniqueId,
-        'In-Reply-To': uniqueId,
-        'X-Entity-Ref-ID': uniqueId
-      }
-    };
+    // Bypass Render's SMTP Block by using Brevo's HTTP REST API
+    if (process.env.SMTP_PASS && process.env.SMTP_PASS.startsWith('xsmtpsib-')) {
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'api-key': process.env.SMTP_PASS,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          sender: { 
+            name: "Roadside Assistant", 
+            email: process.env.SMTP_USER || "noreply@roadassist.com" 
+          },
+          to: [{ email: email, name: name || 'User' }],
+          subject: `Your Verification Code: ${otp}`,
+          htmlContent: html
+        })
+      });
 
-    const info = await transporter.sendMail(mailOptions);
-    logger.info(`OTP email sent to ${email}, messageId: ${info.messageId}`);
-
-    // Log Ethereal preview URL in development
-    if (!process.env.SMTP_USER) {
-      const previewUrl = nodemailer.getTestMessageUrl(info);
-      if (previewUrl) {
-        logger.info(`📧 Ethereal preview URL: ${previewUrl}`);
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`Brevo API Error: ${response.status} ${errorData}`);
       }
+      
+      logger.info(`OTP email sent via Brevo HTTP API to ${email}`);
+      return { success: true };
     }
 
+    // Fallback for local development or non-Brevo configs
+    const transporter = await createTransporter();
+    const uniqueId = `<${Date.now()}.${Math.random().toString(36).substring(2)}@roadassist.com>`;
+    
+    const info = await transporter.sendMail({
+      from: getFromAddress(),
+      to: email,
+      subject: `Your Verification Code: ${otp}`,
+      html: html,
+      messageId: uniqueId,
+    });
+
+    logger.info(`OTP email sent via SMTP to ${email}: ${info.messageId}`);
     return { success: true };
   } catch (error) {
-    logger.error(`Failed to send OTP email to ${email}: ${error.message}`);
+    logger.error(`Error in sendOTP: ${error.message}`);
     throw error;
   }
 };
