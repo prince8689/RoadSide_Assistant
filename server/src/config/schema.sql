@@ -299,9 +299,16 @@ INSERT INTO service_categories (name, slug, icon, base_price, description) VALUE
   (
     'Fuel Delivery',
     'fuel-delivery',
-    'fuel',
-    400.00,
-    'Ran out of fuel? We deliver fuel directly to your breakdown location.'
+    'gas-station',
+    200.00,
+    'Emergency fuel delivery (Petrol/Diesel) to your location.'
+  ),
+  (
+    'Other Service',
+    'other-service',
+    'more-horizontal',
+    0.00,
+    'Any other general help or miscellaneous assistance. Price varies on call.'
   );
 
 -- ────────────────────────────────────────────

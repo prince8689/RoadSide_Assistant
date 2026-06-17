@@ -79,6 +79,15 @@ const connectDB = async () => {
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         );
       `);
+      
+      await client.query(`
+        INSERT INTO service_categories (name, slug, icon, base_price, description)
+        SELECT 'Other Service', 'other-service', 'more-horizontal', 0.00, 'Any other general help or miscellaneous assistance. Price varies on call.'
+        WHERE NOT EXISTS (
+          SELECT 1 FROM service_categories WHERE slug = 'other-service'
+        );
+      `);
+      
       console.log('✅ Auto-migrations completed successfully.');
     } catch (e) {
       console.error('Auto-migration error:', e.message);
