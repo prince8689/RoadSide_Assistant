@@ -81,29 +81,117 @@ const sendOTP = async (email, otp, name) => {
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
-        body { font-family: 'Inter', Arial, sans-serif; background-color: #f3f4f6; padding: 20px; }
-        .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; padding: 40px; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .logo { font-size: 24px; font-weight: 800; color: #1e40af; }
-        .otp-box { background: #eff6ff; border: 2px dashed #3b82f6; border-radius: 8px; padding: 20px; text-align: center; margin: 30px 0; }
-        .otp-code { font-size: 36px; font-weight: 800; color: #1d4ed8; letter-spacing: 4px; margin: 0; }
-        .footer { text-align: center; color: #6b7280; font-size: 14px; margin-top: 40px; }
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
+        body { 
+          font-family: 'Outfit', sans-serif; 
+          background-color: #f0f4f8; 
+          margin: 0; 
+          padding: 30px 10px; 
+          color: #334155;
+        }
+        .container { 
+          max-width: 500px; 
+          margin: 0 auto; 
+          background: #ffffff; 
+          border-radius: 20px; 
+          padding: 40px; 
+          box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+          border-top: 6px solid #4f46e5;
+        }
+        .header { 
+          text-align: center; 
+          margin-bottom: 30px; 
+        }
+        .logo { 
+          font-size: 28px; 
+          font-weight: 800; 
+          color: #0f172a; 
+          letter-spacing: -0.5px;
+        }
+        .logo span {
+          color: #4f46e5;
+        }
+        .greeting {
+          font-size: 20px;
+          font-weight: 600;
+          color: #0f172a;
+          margin-bottom: 10px;
+        }
+        .message {
+          font-size: 16px;
+          line-height: 1.5;
+          color: #64748b;
+          margin-bottom: 30px;
+          text-align: center;
+        }
+        .otp-box { 
+          background: linear-gradient(145deg, #f8fafc, #f1f5f9);
+          border: 1px solid #e2e8f0; 
+          border-radius: 12px; 
+          padding: 25px; 
+          text-align: center; 
+          margin: 20px 0; 
+        }
+        .otp-label {
+          font-size: 13px;
+          text-transform: uppercase;
+          letter-spacing: 1.5px;
+          color: #94a3b8;
+          font-weight: 600;
+          margin-bottom: 10px;
+        }
+        .otp-code { 
+          font-size: 42px; 
+          font-weight: 800; 
+          color: #4f46e5; 
+          letter-spacing: 8px; 
+          margin: 0; 
+          text-shadow: 2px 2px 4px rgba(79, 70, 229, 0.1);
+        }
+        .warning {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 14px;
+          color: #ef4444;
+          font-weight: 600;
+          margin-top: 20px;
+          background: #fef2f2;
+          padding: 10px;
+          border-radius: 8px;
+        }
+        .footer { 
+          text-align: center; 
+          color: #94a3b8; 
+          font-size: 13px; 
+          margin-top: 40px; 
+          border-top: 1px solid #f1f5f9;
+          padding-top: 20px;
+        }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <div class="logo">🚗 Roadside Assistant</div>
+          <div class="logo">🚗 Roadside<span>Assist</span></div>
         </div>
-        <p>Hi ${name || 'there'},</p>
-        <p>Your verification code is ready. Use the OTP below to complete your authentication process.</p>
+        <div class="greeting">Hi ${name || 'there'},</div>
+        <div class="message">
+          We received a request to access your account. Please use the verification code below to securely log in.
+        </div>
+        
         <div class="otp-box">
+          <div class="otp-label">Secure OTP Code</div>
           <p class="otp-code">${otp}</p>
         </div>
-        <p>This code will expire in <strong>15 minutes</strong>.</p>
+        
+        <div class="warning">
+          ⏳ This code expires in 15 minutes
+        </div>
+        
         <div class="footer">
-          <p>If you didn't request this code, you can safely ignore this email.</p>
-          <p>Generated at: ${timeStr}</p>
+          <p>If you didn't request this code, you can safely ignore this email. Someone might have mistyped their email address.</p>
+          <p style="margin-top: 10px; color: #cbd5e1; font-size: 11px;">Generated securely at: ${timeStr}</p>
         </div>
       </div>
     </body>

@@ -37,6 +37,14 @@ pool.on('error', (err) => {
 const connectDB = async () => {
   try {
     const client = await pool.connect();
+    
+    // Auto-migrate the enum value if it's missing (Postgres 12+)
+    try {
+      await client.query("ALTER TYPE request_status ADD VALUE IF NOT EXISTS 'awaiting_payment'");
+    } catch (e) {
+      if (e.code !== '42710') console.error('Enum alter error:', e.message);
+    }
+
     const result = await client.query('SELECT NOW() AS current_time');
     client.release(); // Always release the client back to the pool
 
