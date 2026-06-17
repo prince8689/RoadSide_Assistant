@@ -18,17 +18,9 @@ const { logger } = require('./logger');
  */
 const cleanupStaleLocations = async () => {
   try {
-    const result = await query(
-      `UPDATE mechanic_profiles 
-       SET is_available = false, updated_at = NOW()
-       WHERE is_available = true 
-         AND updated_at < NOW() - INTERVAL '10 minutes'
-       RETURNING id, user_id`
-    );
-
-    if (result.rowCount > 0) {
-      logger.info(`🧹 Stale location cleanup complete: marked ${result.rowCount} mechanics offline.`);
-    }
+    // User requested: Mechanics should only go offline manually.
+    // Disabling aggressive 10-minute auto-offline.
+    logger.info(`🧹 Auto location cleanup skipped (Manual offline enabled).`);
   } catch (error) {
     logger.error('Failed to run cleanupStaleLocations job: ' + error.message);
   }

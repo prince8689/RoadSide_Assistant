@@ -400,18 +400,9 @@ const initSocket = (server) => {
       if (role === 'mechanic') {
         await redisClient.del(`mechanic:location:${id}`);
         
-        // Update DB is_available = false after 2 min delay
-        setTimeout(async () => {
-          try {
-            const isBackOnline = await redisClient.get(`user:online:${id}`);
-            if (!isBackOnline) {
-              await query('UPDATE mechanic_profiles SET is_available = false WHERE user_id = $1', [id]);
-              logger.info(`Mechanic ${id} offline cleanly completed after 2 min delay.`);
-            }
-          } catch (innerErr) {
-            logger.error(`Mechanic offline timeout error: ${innerErr.message}`);
-          }
-        }, 2 * 60 * 1000);
+        // User requested: Mechanic should only go offline manually.
+        // Removed the 2-minute timeout that sets is_available = false.
+        logger.info(`Mechanic ${id} disconnected. Manual offline required.`);
       }
     }));
 
