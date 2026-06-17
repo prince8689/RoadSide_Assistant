@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { getRequestsReport, getMechanicPerformance } from '../../../api/adminApi';
 
-const COLORS = ['#FF6B35', '#1A1A2E', '#28A745', '#DC3545', '#8884d8'];
+const COLORS = ['#FF6B35', '#1A1A2E', '#28A745', '#DC3545', '#8884d8', '#20B2AA'];
 
 const ReportsPage = () => {
   const [reqData, setReqData] = useState([]);
@@ -32,7 +32,8 @@ const ReportsPage = () => {
     { name: 'Towing', value: 400 },
     { name: 'Battery', value: 300 },
     { name: 'Tire', value: 300 },
-    { name: 'Fuel', value: 200 }
+    { name: 'Fuel', value: 200 },
+    { name: 'Other Services', value: 150 }
   ];
 
   return (

@@ -218,7 +218,14 @@ const RequestHelpPage = () => {
   const handleSaveVehicle = async () => {
     try {
       setLoading(true);
-      const res = await api.post('/users/vehicles', newVehicle);
+      
+      // Auto-fill hidden required fields
+      const payload = { ...newVehicle };
+      if (!payload.model) payload.model = 'Unknown';
+      if (!payload.license_plate) payload.license_plate = `TEMP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      if (!payload.year) payload.year = new Date().getFullYear();
+
+      const res = await api.post('/users/vehicles', payload);
       const created = res.data?.vehicle || res.data;
       setVehicles([created, ...vehicles]);
       setSelectedVehicle(created);
@@ -430,16 +437,8 @@ const RequestHelpPage = () => {
                         <input className="input-field" placeholder="e.g. Honda" value={newVehicle.make} onChange={e => setNewVehicle({...newVehicle, make: e.target.value})} />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Model</label>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Model (Optional)</label>
                         <input className="input-field" placeholder="e.g. City" value={newVehicle.model} onChange={e => setNewVehicle({...newVehicle, model: e.target.value})} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Registration Number</label>
-                        <input className="input-field uppercase" placeholder="DL01AB1234" value={newVehicle.license_plate} onChange={e => setNewVehicle({...newVehicle, license_plate: e.target.value.toUpperCase()})} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Purchase Year</label>
-                        <input type="number" className="input-field" value={newVehicle.year} onChange={e => setNewVehicle({...newVehicle, year: parseInt(e.target.value)})} />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-gray-500 mb-1">Fuel Type</label>
@@ -451,22 +450,6 @@ const RequestHelpPage = () => {
                           <option value="cng">CNG</option>
                           <option value="lpg">LPG</option>
                         </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Color</label>
-                        <input className="input-field" placeholder="e.g. White" value={newVehicle.color} onChange={e => setNewVehicle({...newVehicle, color: e.target.value})} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Chassis Number</label>
-                        <input className="input-field" placeholder="Optional" value={newVehicle.chassis_number} onChange={e => setNewVehicle({...newVehicle, chassis_number: e.target.value})} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Engine Number</label>
-                        <input className="input-field" placeholder="Optional" value={newVehicle.engine_number} onChange={e => setNewVehicle({...newVehicle, engine_number: e.target.value})} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Insurance Expiry Date</label>
-                        <input type="date" className="input-field" value={newVehicle.insurance_expiry_date} onChange={e => setNewVehicle({...newVehicle, insurance_expiry_date: e.target.value})} />
                       </div>
                     </div>
                     <div className="flex gap-2 justify-end mt-4">
