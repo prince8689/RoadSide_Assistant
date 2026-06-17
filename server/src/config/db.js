@@ -76,10 +76,23 @@ const connectDB = async () => {
           mechanic_alerts BOOLEAN DEFAULT true,
           service_completed BOOLEAN DEFAULT true,
           promotions BOOLEAN DEFAULT false,
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      await client.query(`ALTER TABLE mechanic_profiles ADD COLUMN IF NOT EXISTS working_hours_start TIME DEFAULT '09:00';`);
+      await client.query(`ALTER TABLE mechanic_profiles ADD COLUMN IF NOT EXISTS working_hours_end TIME DEFAULT '18:00';`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS mechanic_services (
+          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          mechanic_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          category_id UUID NOT NULL REFERENCES service_categories(id) ON DELETE CASCADE,
+          min_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+          max_price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+          is_enabled BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          UNIQUE(mechanic_id, category_id)
         );
       `);
-      
+
       await client.query(`
         INSERT INTO service_categories (name, slug, icon, base_price, description)
         SELECT 'Other Service', 'other-service', 'more-horizontal', 0.00, 'Any other general help or miscellaneous assistance. Price varies on call.'

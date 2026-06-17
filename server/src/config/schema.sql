@@ -139,10 +139,27 @@ CREATE TABLE mechanic_profiles (
   current_lng      DECIMAL(11, 8),
   rating           DECIMAL(3, 2) NOT NULL DEFAULT 0.00 CHECK (rating >= 0 AND rating <= 5),
   total_jobs       INTEGER NOT NULL DEFAULT 0 CHECK (total_jobs >= 0),
+  working_hours_start TIME DEFAULT '09:00',
+  working_hours_end TIME DEFAULT '18:00',
   documents        JSONB DEFAULT '[]',
   rejection_reason TEXT,
   created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- TABLE 3.1: mechanic_services
+-- ============================================================
+CREATE TABLE mechanic_services (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  mechanic_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category_id      UUID NOT NULL REFERENCES service_categories(id) ON DELETE CASCADE,
+  min_price        DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  max_price        DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  is_enabled       BOOLEAN NOT NULL DEFAULT true,
+  created_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  UNIQUE(mechanic_id, category_id)
 );
 
 -- ============================================================
