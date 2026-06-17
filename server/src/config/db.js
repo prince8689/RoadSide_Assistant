@@ -76,6 +76,10 @@ const connectDB = async () => {
           mechanic_alerts BOOLEAN DEFAULT true,
           service_completed BOOLEAN DEFAULT true,
           promotions BOOLEAN DEFAULT false,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+      `);
+      
       await client.query(`ALTER TABLE mechanic_profiles ADD COLUMN IF NOT EXISTS working_hours_start TIME DEFAULT '09:00';`);
       await client.query(`ALTER TABLE mechanic_profiles ADD COLUMN IF NOT EXISTS working_hours_end TIME DEFAULT '18:00';`);
 
