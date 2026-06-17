@@ -127,6 +127,32 @@ app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
 
 app.get('/', (req, res) => res.status(200).send('API is running'));
 
+// Test SMTP Endpoint
+app.get('/api/test-smtp', async (req, res) => {
+  try {
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+      port: process.env.SMTP_PORT || 587,
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      tls: { rejectUnauthorized: false }
+    });
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM || `"Test" <${process.env.SMTP_USER}>`,
+      to: process.env.SMTP_USER,
+      subject: 'Render SMTP Test',
+      text: 'If you see this, SMTP is working from Render!',
+    });
+    res.status(200).json({ success: true, messageId: info.messageId });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message, stack: error.stack });
+  }
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     // Check PostgreSQL connection
