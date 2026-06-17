@@ -97,8 +97,11 @@ const generateInvoice = async (requestId, mechanicId, items) => {
 
         await client.query('COMMIT');
 
-        // Immediately send email and notification to User
-        await processAndSendInvoice(invoice.id);
+        // Immediately return invoice and process email asynchronously in the background
+        // to prevent API timeouts (Vercel has strict timeouts)
+        processAndSendInvoice(invoice.id).catch(postCommitErr => {
+            console.error('Error generating PDF or sending email after invoice commit:', postCommitErr);
+        });
 
         return invoice;
     } catch (error) {

@@ -107,17 +107,21 @@ const ActiveJobPage = () => {
     }
   };
 
+  const [isGenerating, setIsGenerating] = useState(false);
   const handleGenerateBill = async () => {
     const validItems = billItems.filter(item => item.name && item.amount && !isNaN(item.amount));
     if (validItems.length === 0) return toast.error('Please add at least one valid item');
     
+    setIsGenerating(true);
     try {
       await generateInvoice(activeJob.id, validItems);
       setIsBillingMode(false);
       toast.success('Bill generated and sent to user');
       fetchActiveJobs();
     } catch (err) {
-      toast.error('Failed to generate bill');
+      toast.error(err.response?.data?.message || 'Failed to generate bill');
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -287,8 +291,10 @@ const ActiveJobPage = () => {
                       ))}
                       <button onClick={() => setBillItems([...billItems, {name: '', amount: ''}])} className="text-primary text-sm font-bold mb-4 hover:underline">+ Add Item</button>
                       <div className="flex gap-2">
-                        <button onClick={() => setIsBillingMode(false)} className="btn-outline flex-1 py-2 text-sm">Cancel</button>
-                        <button onClick={handleGenerateBill} className="btn-primary flex-1 py-2 text-sm">Send Bill</button>
+                        <button onClick={() => setIsBillingMode(false)} className="btn-outline flex-1 py-2 text-sm" disabled={isGenerating}>Cancel</button>
+                        <button onClick={handleGenerateBill} disabled={isGenerating} className="btn-primary flex-1 py-2 text-sm">
+                          {isGenerating ? 'Sending...' : 'Send Bill'}
+                        </button>
                       </div>
                     </div>
                   )}
