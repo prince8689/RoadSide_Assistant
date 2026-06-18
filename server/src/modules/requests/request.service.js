@@ -1303,6 +1303,7 @@ const submitPayment = async (requestId, userId, paymentMethod, receiptFile) => {
 // ============================================
 const verifyPayment = async (requestId, mechanicId) => {
   const client = await pool.connect();
+  let updatedRequest;
   try {
     await client.query('BEGIN');
     
@@ -1319,6 +1320,7 @@ const verifyPayment = async (requestId, mechanicId) => {
        WHERE id = $1 RETURNING *`,
       [requestId]
     );
+    updatedRequest = updated.rows[0];
 
     const fullRequest = await getRequestById(requestId, mechanicId, 'mechanic');
     const invoiceUrl = '/uploads/invoices/invoice-' + requestId + '.pdf';
@@ -1327,44 +1329,47 @@ const verifyPayment = async (requestId, mechanicId) => {
     await client.query('UPDATE service_requests SET invoice_url = $1 WHERE id = $2', [invoiceUrl, requestId]);
     await client.query("UPDATE invoices SET status = 'paid', paid_at = NOW() WHERE request_id = $1", [requestId]);
 
+    await client.query('UPDATE mechanic_profiles SET is_available = true WHERE user_id = $1', [mechanicId]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    client.release();
+    throw err;
+  }
+  
+  client.release();
+
+  // Anything after COMMIT should NOT throw and fail the request, because DB is already saved as paid.
+  try {
+    const request = updatedRequest;
     const fullRequestCompleted = await getRequestById(requestId, request.user_id, 'user');
     sendToUser(request.user_id, 'request:status-update', fullRequestCompleted);
     sendToUser(request.user_id, EVENTS.REQUEST_COMPLETED, { requestId, message: 'Payment verified and job completed.' });
     const msg = NotificationMessages.REQUEST_COMPLETED('Payment verified successfully. Job is now complete!');
     await sendRealTimeNotification(request.user_id, msg.title, msg.message, msg.type);
 
-    await client.query('UPDATE mechanic_profiles SET is_available = true WHERE user_id = $1', [mechanicId]);
-    await client.query('COMMIT');
-    
     await redisClient.del(`request:active:${request.user_id}`);
     await redisClient.del(`mechanic:active:${mechanicId}`);
 
-    try {
-      const { sendJobAlert } = require('../../utils/email');
-      const uQuery = await pool.query('SELECT email, full_name FROM users WHERE id = $1', [request.user_id]);
-      if (uQuery.rows.length > 0) {
-        await sendJobAlert(uQuery.rows[0].email, uQuery.rows[0].full_name, {
-          serviceType: 'Invoice Available',
-          locationArea: 'Payment Successful',
-          distance: '-',
-          description: 'Your payment was successfully verified. You can view the invoice in your Service History.',
-          vehicleInfo: '-'
-        });
-      }
-    } catch (emailErr) {
-      console.error('Failed to send payment verification email:', emailErr);
+    const { sendJobAlert } = require('../../utils/email');
+    const uQuery = await pool.query('SELECT email, full_name FROM users WHERE id = $1', [request.user_id]);
+    if (uQuery.rows.length > 0) {
+      await sendJobAlert(uQuery.rows[0].email, uQuery.rows[0].full_name, {
+        serviceType: 'Invoice Available',
+        locationArea: 'Payment Successful',
+        distance: '-',
+        description: 'Your payment was successfully verified. You can view the invoice in your Service History.',
+        vehicleInfo: '-'
+      });
     }
-
-    return updated.rows[0];
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
+  } catch (postCommitErr) {
+    console.error('Non-critical error after verifyPayment commit:', postCommitErr);
   }
+
+  return updatedRequest;
 };
 
-const rejectPayment = async (requestId, mechanicId) => {
+const rejectPayment = async (requestId, mechanicId, reason) => {
   const client = await pool.connect();
   const fs = require('fs');
   const path = require('path');
@@ -1392,9 +1397,11 @@ const rejectPayment = async (requestId, mechanicId) => {
 
     const fullRequestRejected = await getRequestById(requestId, request.user_id, 'user');
     sendToUser(request.user_id, 'request:status-update', fullRequestRejected);
-    sendToUser(request.user_id, EVENTS.PAYMENT_REJECTED, { requestId, message: 'Payment rejected. Please try again.' });
     
-    const msg = NotificationMessages.REQUEST_STATUS('payment_rejected', 'Payment rejected by mechanic. Please submit payment again.');
+    const declineReason = reason || 'Invalid receipt or payment not received';
+    sendToUser(request.user_id, EVENTS.PAYMENT_REJECTED, { requestId, message: `Payment rejected. Reason: ${declineReason}. Please try again.` });
+    
+    const msg = NotificationMessages.REQUEST_STATUS('payment_rejected', `Payment rejected by mechanic. Reason: ${declineReason}. Please submit payment again.`);
     await sendRealTimeNotification(request.user_id, msg.title, msg.message, msg.type);
 
     await client.query('COMMIT');

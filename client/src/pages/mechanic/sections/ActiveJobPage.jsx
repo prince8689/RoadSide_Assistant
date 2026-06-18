@@ -130,11 +130,11 @@ const ActiveJobPage = () => {
     setIsVerifying(true);
     try {
       await axiosInst.post(`/requests/${activeJob.id}/verify-payment`);
-      toast.success('Payment verified successfully!');
+      toast.success('Payment approve successful!');
       fetchActiveJobs();
       navigate('/mechanic/history');
     } catch (err) {
-      toast.error('Failed to verify payment');
+      toast.error(err.response?.data?.message || 'Failed to verify payment');
     } finally {
       setIsVerifying(false);
     }
@@ -142,10 +142,12 @@ const ActiveJobPage = () => {
 
   const [isRejecting, setIsRejecting] = useState(false);
   const handleRejectPayment = async () => {
-    if (!window.confirm('Are you sure you want to reject this payment? The user will have to submit it again.')) return;
+    const reason = window.prompt('Please provide a reason for declining this payment:', 'Invalid or unclear receipt');
+    if (reason === null) return; // User cancelled
+
     setIsRejecting(true);
     try {
-      await axiosInst.post(`/requests/${activeJob.id}/reject-payment`);
+      await axiosInst.post(`/requests/${activeJob.id}/reject-payment`, { reason });
       toast.success('Payment rejected. User notified.');
       fetchActiveJobs();
     } catch (err) {

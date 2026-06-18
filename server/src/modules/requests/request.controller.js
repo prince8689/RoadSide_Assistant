@@ -305,7 +305,7 @@ const verifyPayment = async (req, res, next) => {
 
 const rejectPayment = async (req, res, next) => {
   try {
-    const request = await requestService.rejectPayment(req.params.id, req.user.id);
+    const request = await requestService.rejectPayment(req.params.id, req.user.id, req.body.reason);
     return success(res, { request }, 'Payment rejected successfully');
   } catch (error) {
     next(error);
