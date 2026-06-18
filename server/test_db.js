@@ -1,21 +1,20 @@
 require('dotenv').config();
 const { query } = require('./src/config/db.js');
 
-async function checkRelations() {
+async function checkSchema() {
   try {
-    await query(`
-      ALTER TABLE mechanic_locations
-      DROP CONSTRAINT mechanic_locations_mechanic_id_fkey,
-      ADD CONSTRAINT mechanic_locations_mechanic_id_fkey
-        FOREIGN KEY (mechanic_id)
-        REFERENCES mechanic_profiles(id)
-        ON DELETE CASCADE;
+    const res = await query(`
+      SELECT mp.latitude, (6371 * acos(cos(radians(28.6139)) * cos(radians(mp.latitude)) * cos(radians(mp.longitude) - radians(77.2090)) + sin(radians(28.6139)) * sin(radians(mp.latitude)))) AS distance_km
+      FROM mechanic_profiles mp
+      WHERE mp.is_available = true
+      HAVING (6371 * acos(cos(radians(28.6139)) * cos(radians(mp.latitude)) * cos(radians(mp.longitude) - radians(77.2090)) + sin(radians(28.6139)) * sin(radians(mp.latitude)))) <= 10
     `);
-    console.log('Fixed mechanic_locations foreign key constraint!');
-  } catch(e) {
-    console.error(e);
+    console.log(res.rows);
+  } catch (e) {
+    console.error('ERROR:', e.message);
+  } finally {
+    process.exit(0);
   }
-  process.exit();
 }
 
-checkRelations();
+checkSchema();
