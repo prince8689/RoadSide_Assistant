@@ -12,7 +12,7 @@
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { query } = require('../../config/db');
+const { query, pool } = require('../../config/db');
 const { redisClient } = require('../../config/redis');
 const { AppError } = require('../../middleware/errorHandler');
 const { logger } = require('../../utils/logger');
@@ -231,94 +231,97 @@ const registerUser = async (userData) => {
   // 1. Verify OTP from database (without deleting it immediately)
   await verifyOTP(email, otp, false);
 
-  // 2. Check if email already exists (double check just in case)
-  const emailCheck = await query(
-    'SELECT id FROM users WHERE email = $1',
-    [email]
-  );
-  if (emailCheck.rows.length > 0) {
-    throw new AppError('Email is already registered', 409);
-  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  // 3. Check if phone already exists
-  if (phone) {
-    const phoneCheck = await query(
-      'SELECT id FROM users WHERE phone = $1',
-      [phone]
-    );
-    if (phoneCheck.rows.length > 0) {
-      throw new AppError('Phone number is already registered', 409);
+    // 2. Check if email already exists
+    const emailCheck = await client.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (emailCheck.rows.length > 0) {
+      throw new AppError('Email is already registered', 409);
     }
-  }
 
-  // 3.5 Check Aadhar Uniqueness for mechanics
-  if (role === 'mechanic' && userData.documents) {
-    const aadharDoc = userData.documents.find(d => d.type === 'aadhar');
-    if (aadharDoc && aadharDoc.number) {
-      const aadharCheck = await query(
-        `SELECT id FROM mechanic_profiles WHERE documents @> $1::jsonb`,
-        [JSON.stringify([{ type: 'aadhar', number: aadharDoc.number }])]
-      );
-      if (aadharCheck.rows.length > 0) {
-        throw new AppError('This Aadhar Number is already in use by another mechanic', 409);
+    // 3. Check if phone already exists
+    if (phone) {
+      const phoneCheck = await client.query('SELECT id FROM users WHERE phone = $1', [phone]);
+      if (phoneCheck.rows.length > 0) {
+        throw new AppError('Phone number is already registered', 409);
       }
     }
-  }
 
-  // 4. Hash password with bcrypt
-  const salt = await bcrypt.genSalt(SALT_ROUNDS);
-  const password_hash = await bcrypt.hash(password, salt);
+    // 3.5 Check Aadhar Uniqueness for mechanics
+    if (role === 'mechanic' && userData.documents) {
+      const aadharDoc = userData.documents.find(d => d.type === 'aadhar');
+      if (aadharDoc && aadharDoc.number) {
+        const aadharCheck = await client.query(
+          `SELECT id FROM mechanic_profiles WHERE documents @> $1::jsonb`,
+          [JSON.stringify([{ type: 'aadhar', number: aadharDoc.number }])]
+        );
+        if (aadharCheck.rows.length > 0) {
+          throw new AppError('This Aadhar Number is already in use by another mechanic', 409);
+        }
+      }
+    }
 
-  // 5. Insert user into database
-  const result = await query(
-    `INSERT INTO users (full_name, email, phone, password_hash, role)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, full_name, email, phone, role, profile_picture, is_active, created_at`,
-    [full_name, email, phone, password_hash, role || 'user']
-  );
+    // 4. Hash password with bcrypt
+    const salt = await bcrypt.genSalt(SALT_ROUNDS);
+    const password_hash = await bcrypt.hash(password, salt);
 
-  const user = result.rows[0];
-
-  // 6. If mechanic, create mechanic profile
-  if (user.role === 'mechanic') {
-    const { business_name, experience_years, specializations, documents } = userData;
-    await query(
-      `INSERT INTO mechanic_profiles (user_id, business_name, experience_years, specializations, documents)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [
-        user.id, 
-        business_name || null, 
-        experience_years || 0, 
-        specializations || [],
-        documents ? JSON.stringify(documents) : JSON.stringify([])
-      ]
+    // 5. Insert user into database
+    const result = await client.query(
+      `INSERT INTO users (full_name, email, phone, password_hash, role)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, full_name, email, phone, role, profile_picture, is_active, created_at`,
+      [full_name, email, phone, password_hash, role || 'user']
     );
+
+    const user = result.rows[0];
+
+    // 6. If mechanic, create mechanic profile
+    if (user.role === 'mechanic') {
+      const { business_name, experience_years, specializations, documents } = userData;
+      await client.query(
+        `INSERT INTO mechanic_profiles (user_id, business_name, experience_years, specializations, documents)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          user.id, 
+          business_name || null, 
+          experience_years || 0, 
+          specializations || [],
+          documents ? JSON.stringify(documents) : JSON.stringify([])
+        ]
+      );
+    }
+
+    // Clean up OTP after successful registration
+    await client.query('DELETE FROM otps WHERE email = $1', [email]);
+
+    await client.query('COMMIT');
+
+    // 7. Generate tokens
+    const accessToken = generateAccessToken(user);
+    const refreshToken = await generateRefreshToken(user);
+
+    // 8. Send welcome email (truly non-blocking)
+    sendWelcomeEmail(email, full_name, user.role).catch((emailError) => {
+      logger.error(`Failed to send welcome email to ${email}: ${emailError.message}`);
+    });
+
+    // Update Admin Dashboard
+    emitDashboardUpdate();
+
+    // 9. Return user + tokens
+    return {
+      user,
+      accessToken,
+      refreshToken,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  // 7. Generate tokens
-  const accessToken = generateAccessToken(user);
-  const refreshToken = await generateRefreshToken(user);
-
-  // 8. Send welcome email (non-blocking)
-  try {
-    await sendWelcomeEmail(email, full_name, user.role);
-  } catch (emailError) {
-    logger.error(`Failed to send welcome email to ${email}: ${emailError.message}`);
-    // Don't break registration flow if email fails
-  }
-
-  // Update Admin Dashboard
-  emitDashboardUpdate();
-
-  // Clean up OTP after successful registration
-  await query('DELETE FROM otps WHERE email = $1', [email]);
-
-  // 9. Return user + tokens (password NOT included — RETURNING clause excludes it)
-  return {
-    user,
-    accessToken,
-    refreshToken,
-  };
 };
 
 // ============================================

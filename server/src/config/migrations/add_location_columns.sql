@@ -17,12 +17,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;
 
 -- Create mechanic_locations history table
 CREATE TABLE IF NOT EXISTS mechanic_locations (
-  id SERIAL PRIMARY KEY,
-  mechanic_id UUID REFERENCES mechanic_profiles(id),
-  latitude DECIMAL(10, 8) NOT NULL,
-  longitude DECIMAL(11, 8) NOT NULL,
-  accuracy DECIMAL(10, 2),
-  timestamp TIMESTAMP DEFAULT NOW()
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  mechanic_id      UUID NOT NULL REFERENCES mechanic_profiles(id) ON DELETE CASCADE,
+  latitude         DECIMAL(10, 8) NOT NULL,
+  longitude        DECIMAL(11, 8) NOT NULL,
+  accuracy         DECIMAL(10, 2),
+  timestamp        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_mechanic_locations_mechanic_id 
   ON mechanic_locations(mechanic_id);

@@ -66,6 +66,7 @@ const errorHandler = (err, req, res, next) => {
 
   // PostgreSQL foreign key violation
   if (err.code === '23503') {
+    console.error('[DB ERROR 23503]', err.table, err.constraint, err.detail);
     statusCode = 400;
     message = 'Referenced record does not exist';
   }

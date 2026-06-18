@@ -148,9 +148,9 @@ const createRequest = async (userId, data) => {
       `INSERT INTO service_requests (
         user_id, vehicle_id, category_id, mechanic_id,
         breakdown_lat, breakdown_lng, breakdown_address,
-        description, status, share_location, share_phone
+        description, status, estimated_price
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9)
       RETURNING *`,
       [
         userId,
@@ -161,8 +161,7 @@ const createRequest = async (userId, data) => {
         breakdown_lng,
         breakdown_address,
         description || null,
-        shareLocation,
-        sharePhone
+        category.base_price
       ]
     );
     // 5. Increment total_requests_received for the mechanic

@@ -109,7 +109,7 @@ const HomePage = () => {
 
   const handleRequestHelp = (mechanic, categoryId) => {
     setIsModalOpen(false);
-    navigate('/dashboard/request', { state: { selectedMechanicId: mechanic.user_id, categoryId } });
+    navigate('/dashboard/request', { state: { selectedMechanicId: mechanic.mechanic_id || mechanic.user_id || mechanic.id, categoryId } });
   };
 
   const handleServiceClick = (serviceType) => {

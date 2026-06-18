@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FiSearch, FiFilter, FiEye, FiSlash, FiCheck, FiTrash2 } from 'react-icons/fi';
 import { toast } from 'react-hot-toast';
 import useAdminStore from '../../../store/adminStore';
+import useAuthStore from '../../../store/authStore';
 import { updateUserStatus, deleteUser } from '../../../api/adminApi';
 import DataTable from '../../../components/admin/DataTable';
 import StatusBadge from '../../../components/admin/StatusBadge';
@@ -9,6 +10,7 @@ import Pagination from '../../../components/admin/Pagination';
 import Modal from '../../../components/admin/Modal';
 
 const UsersPage = () => {
+  const { user } = useAuthStore();
   const { users, pagination, fetchUsers, isLoading } = useAdminStore();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -102,43 +104,48 @@ const UsersPage = () => {
     {
       header: 'Actions',
       accessor: 'actions',
-      render: (row) => (
-        <div className="flex gap-2">
-          <button 
-            onClick={(e) => { e.stopPropagation(); setSelectedUser(row); setIsModalOpen(true); }}
-            className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition"
-            title="View Details"
-          >
-            <FiEye />
-          </button>
-          {row.is_active ? (
+      render: (row) => {
+        const isSelf = user && user.id === row.id;
+        
+        return (
+          <div className="flex gap-2">
             <button 
-              onClick={(e) => { e.stopPropagation(); handleStatusChange(row.id, true); }}
-              className="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100 transition"
-              title="Deactivate"
+              onClick={(e) => { e.stopPropagation(); setSelectedUser(row); setIsModalOpen(true); }}
+              className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition"
+              title="View Details"
             >
-              <FiSlash />
+              <FiEye />
             </button>
-          ) : (
-            <button 
-              onClick={(e) => { e.stopPropagation(); handleStatusChange(row.id, false); }}
-              className="p-1.5 text-green-600 bg-green-50 rounded hover:bg-green-100 transition"
-              title="Activate"
-            >
-              <FiCheck />
-            </button>
-          )}
-          {!row.is_active && (
-            <button 
-              onClick={(e) => { e.stopPropagation(); handleDeleteUser(row.id); }}
-              className="p-1.5 text-red-700 bg-red-100 rounded hover:bg-red-200 transition"
-              title="Delete Permanently"
-            >
-              <FiTrash2 />
-            </button>
-          )}
-        </div>
-      )
+            {!isSelf && row.is_active && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleStatusChange(row.id, true); }}
+                className="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100 transition"
+                title="Deactivate"
+              >
+                <FiSlash />
+              </button>
+            )}
+            {!isSelf && !row.is_active && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleStatusChange(row.id, false); }}
+                className="p-1.5 text-green-600 bg-green-50 rounded hover:bg-green-100 transition"
+                title="Activate"
+              >
+                <FiCheck />
+              </button>
+            )}
+            {!isSelf && !row.is_active && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleDeleteUser(row.id); }}
+                className="p-1.5 text-red-700 bg-red-100 rounded hover:bg-red-200 transition"
+                title="Delete Permanently"
+              >
+                <FiTrash2 />
+              </button>
+            )}
+          </div>
+        );
+      }
     }
   ];
 
