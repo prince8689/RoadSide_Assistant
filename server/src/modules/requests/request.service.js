@@ -919,7 +919,7 @@ const rejectRequest = async (requestId, mechanicId) => {
       const userQuery = await client.query('SELECT email, full_name FROM users WHERE id = $1', [request.user_id]);
       if (userQuery.rows.length > 0) {
         const userRow = userQuery.rows[0];
-        await sendRequestRejectedEmail(userRow.email, userRow.full_name);
+        sendRequestRejectedEmail(userRow.email, userRow.full_name).catch(console.error);
       }
     } catch (err) {
       logger.error('Failed to send rejection email: ' + err.message);
@@ -1354,13 +1354,13 @@ const verifyPayment = async (requestId, mechanicId) => {
     const { sendJobAlert } = require('../../utils/email');
     const uQuery = await pool.query('SELECT email, full_name FROM users WHERE id = $1', [request.user_id]);
     if (uQuery.rows.length > 0) {
-      await sendJobAlert(uQuery.rows[0].email, uQuery.rows[0].full_name, {
+      sendJobAlert(uQuery.rows[0].email, uQuery.rows[0].full_name, {
         serviceType: 'Invoice Available',
         locationArea: 'Payment Successful',
         distance: '-',
         description: 'Your payment was successfully verified. You can view the invoice in your Service History.',
         vehicleInfo: '-'
-      });
+      }).catch(err => console.error('Email send failed:', err.message));
     }
   } catch (postCommitErr) {
     console.error('Non-critical error after verifyPayment commit:', postCommitErr);

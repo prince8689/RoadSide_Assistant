@@ -217,12 +217,12 @@ const processAndSendInvoice = async (invoiceId) => {
     );
 
     // Send Email
-    await sendInvoiceEmail(
+    sendInvoiceEmail(
         invoice.user_email,
         invoice.user_name,
         invoice,
         pdfBuffer
-    );
+    ).catch(console.error);
 
     // Send Socket Notification
     sendToUser(invoice.user_id, EVENTS.STATUS_UPDATED, {
