@@ -56,6 +56,7 @@ const RequestHelpPage = () => {
   const [newVehicle, setNewVehicle] = useState({
     vehicle_type: 'car', make: '', model: '', year: new Date().getFullYear(), license_plate: '', fuel_type: 'petrol', color: '', nickname: '', chassis_number: '', engine_number: '', insurance_expiry_date: ''
   });
+  const [editingVehicleId, setEditingVehicleId] = useState(null);
 
   const { activeRequest } = useSelector(state => state.request);
   const fetchActiveRequest = () => dispatch(fetchActiveRequestThunk());
@@ -225,14 +226,27 @@ const RequestHelpPage = () => {
       if (!payload.license_plate) payload.license_plate = `TEMP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
       if (!payload.year) payload.year = new Date().getFullYear();
 
-      const res = await api.post('/users/vehicles', payload);
-      const created = res.data?.vehicle || res.data;
-      setVehicles([created, ...vehicles]);
-      setSelectedVehicle(created);
+      if (editingVehicleId) {
+        const res = await api.patch(`/users/vehicles/${editingVehicleId}`, payload);
+        const updated = res.data?.vehicle || res.data;
+        setVehicles(vehicles.map(v => v.id === editingVehicleId ? updated : v));
+        if (selectedVehicle?.id === editingVehicleId) setSelectedVehicle(updated);
+        toast.success('Vehicle updated successfully');
+      } else {
+        const res = await api.post('/users/vehicles', payload);
+        const created = res.data?.vehicle || res.data;
+        setVehicles([created, ...vehicles]);
+        setSelectedVehicle(created);
+        toast.success('Vehicle added successfully');
+      }
+      
       setShowAddVehicle(false);
-      toast.success('Vehicle added successfully');
+      setEditingVehicleId(null);
+      setNewVehicle({
+        vehicle_type: 'car', make: '', model: '', year: new Date().getFullYear(), license_plate: '', fuel_type: 'petrol', color: '', nickname: '', chassis_number: '', engine_number: '', insurance_expiry_date: ''
+      });
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to add vehicle');
+      toast.error(error.response?.data?.message || 'Failed to save vehicle');
     } finally {
       setLoading(false);
     }
@@ -358,7 +372,11 @@ const RequestHelpPage = () => {
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-bold text-dark">Which vehicle needs help?</h2>
                   {!showAddVehicle && (
-                    <button onClick={() => setShowAddVehicle(true)} className="text-primary font-bold text-sm hover:underline">
+                    <button onClick={() => {
+                      setEditingVehicleId(null);
+                      setNewVehicle({ vehicle_type: 'car', make: '', model: '', year: new Date().getFullYear(), license_plate: '', fuel_type: 'petrol', color: '', nickname: '', chassis_number: '', engine_number: '', insurance_expiry_date: '' });
+                      setShowAddVehicle(true);
+                    }} className="text-primary font-bold text-sm hover:underline">
                       + Add New
                     </button>
                   )}
@@ -366,7 +384,7 @@ const RequestHelpPage = () => {
 
                 {showAddVehicle ? (
                   <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-4">
-                    <h3 className="font-bold text-dark">Add New Vehicle</h3>
+                    <h3 className="font-bold text-dark">{editingVehicleId ? 'Edit Vehicle' : 'Add New Vehicle'}</h3>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-bold text-gray-500 mb-1">Vehicle Type</label>
@@ -453,9 +471,13 @@ const RequestHelpPage = () => {
                       </div>
                     </div>
                     <div className="flex gap-2 justify-end mt-4">
-                      {vehicles.length > 0 && <button className="btn-outline py-2 px-4" onClick={() => setShowAddVehicle(false)}>Cancel</button>}
+                      {vehicles.length > 0 && <button className="btn-outline py-2 px-4" onClick={() => {
+                        setShowAddVehicle(false);
+                        setEditingVehicleId(null);
+                        setNewVehicle({ vehicle_type: 'car', make: '', model: '', year: new Date().getFullYear(), license_plate: '', fuel_type: 'petrol', color: '', nickname: '', chassis_number: '', engine_number: '', insurance_expiry_date: '' });
+                      }}>Cancel</button>}
                       <button className="btn-primary py-2 px-6" onClick={handleSaveVehicle} disabled={loading}>
-                        {loading ? 'Saving...' : 'Save Vehicle'}
+                        {loading ? 'Saving...' : (editingVehicleId ? 'Update Vehicle' : 'Save Vehicle')}
                       </button>
                     </div>
                   </div>
@@ -483,7 +505,22 @@ const RequestHelpPage = () => {
                               </div>
                             </div>
                           </div>
-                          {isSelected && <MdCheckCircle className="text-primary text-3xl" />}
+                          <div className="flex flex-col items-end justify-between h-full min-h-[60px] gap-2">
+                            {isSelected ? <MdCheckCircle className="text-primary text-3xl" /> : <div className="h-8"></div>}
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setNewVehicle({
+                                  vehicle_type: veh.vehicle_type || 'car', make: veh.make || '', model: veh.model || '', fuel_type: veh.fuel_type || 'petrol', nickname: veh.nickname || '', year: veh.year || new Date().getFullYear(), license_plate: veh.license_plate || '', color: veh.color || ''
+                                });
+                                setEditingVehicleId(veh.id);
+                                setShowAddVehicle(true);
+                              }}
+                              className="text-xs font-bold text-gray-500 hover:text-primary z-10 px-3 py-1 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow"
+                            >
+                              Edit
+                            </button>
+                          </div>
                         </button>
                       );
                     })}
