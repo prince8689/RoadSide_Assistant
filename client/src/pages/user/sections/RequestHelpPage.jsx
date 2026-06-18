@@ -57,6 +57,8 @@ const RequestHelpPage = () => {
     vehicle_type: 'car', make: '', model: '', year: new Date().getFullYear(), license_plate: '', fuel_type: 'petrol', color: '', nickname: '', chassis_number: '', engine_number: '', insurance_expiry_date: ''
   });
   const [editingVehicleId, setEditingVehicleId] = useState(null);
+  const mapRef = useRef(null);
+  const locationSetRef = useRef(false);
 
   const { activeRequest } = useSelector(state => state.request);
   const fetchActiveRequest = () => dispatch(fetchActiveRequestThunk());
@@ -132,13 +134,22 @@ const RequestHelpPage = () => {
   const requestLocation = async () => {
     try {
       const loc = await getCurrentLocation();
-      setLocation({ lat: loc.lat, lng: loc.lng });
+      const newLocation = { lat: loc.lat, lng: loc.lng };
+      setLocation(newLocation);
+      locationSetRef.current = true;
+      
+      // Pan map to new location if map is loaded
+      if (mapRef.current) {
+        mapRef.current.panTo(newLocation);
+      }
+      
       setAddress('Detecting address...');
       
-      // Load nearby mechanics for step 4
+      // Load nearby mechanics for step 4 (non-blocking)
       dispatch(fetchNearbyMechanicsThunk({ lat: loc.lat, lng: loc.lng, radius: searchRadius }))
         .unwrap()
-        .then(res => setMechanicsPreview(res || []));
+        .then(res => setMechanicsPreview(res || []))
+        .catch(() => {});
 
       // Use Geocoder
       const addressString = await getAddressFromCoords(loc.lat, loc.lng);
@@ -146,12 +157,17 @@ const RequestHelpPage = () => {
     } catch (err) {
       toast.error('Location access denied. Please drag the map or type address.');
       // Default Delhi
-      setLocation({ lat: 28.6139, lng: 77.2090 });
+      const fallback = { lat: 28.6139, lng: 77.2090 };
+      setLocation(fallback);
+      locationSetRef.current = true;
+      if (mapRef.current) {
+        mapRef.current.panTo(fallback);
+      }
     }
   };
 
   useEffect(() => {
-    if (step === 3 && !location) {
+    if (step === 3 && !locationSetRef.current) {
       requestLocation();
     }
   }, [step]);
@@ -545,13 +561,19 @@ const RequestHelpPage = () => {
                   {location ? (
                     <GoogleMap
                       mapContainerStyle={mapContainerStyle}
-                      center={location}
+                      center={!mapRef.current ? location : undefined}
                       zoom={16}
                       options={mapOptions}
+                      onLoad={(map) => {
+                        mapRef.current = map;
+                        map.panTo(location);
+                      }}
                       onClick={async (e) => {
                         const newLat = e.latLng.lat();
                         const newLng = e.latLng.lng();
-                        setLocation({ lat: newLat, lng: newLng });
+                        const newLoc = { lat: newLat, lng: newLng };
+                        setLocation(newLoc);
+                        if (mapRef.current) mapRef.current.panTo(newLoc);
                         const addr = await getAddressFromCoords(newLat, newLng);
                         setAddress(addr);
                       }}
@@ -562,7 +584,9 @@ const RequestHelpPage = () => {
                         onDragEnd={async (e) => {
                           const newLat = e.latLng.lat();
                           const newLng = e.latLng.lng();
-                          setLocation({ lat: newLat, lng: newLng });
+                          const newLoc = { lat: newLat, lng: newLng };
+                          setLocation(newLoc);
+                          if (mapRef.current) mapRef.current.panTo(newLoc);
                           const addr = await getAddressFromCoords(newLat, newLng);
                           setAddress(addr);
                         }}
