@@ -5,10 +5,27 @@ import { useSelector, useDispatch } from 'react-redux';
 import { getMeThunk } from './store/authStore';
 import { connectSocket } from './socket/socketClient';
 
-// Lazy load dashboards
-const UserDashboard = lazy(() => import('./pages/user/UserDashboard'));
-const MechanicDashboard = lazy(() => import('./pages/mechanic/MechanicDashboard'));
-const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+// Lazy load with auto-retry on chunk load failure (handles Vercel re-deploys)
+const lazyWithRetry = (importFn) => {
+  return lazy(() =>
+    importFn().catch(() => {
+      // If chunk fails to load (new deploy), reload page once
+      const hasReloaded = sessionStorage.getItem('chunk_reload');
+      if (!hasReloaded) {
+        sessionStorage.setItem('chunk_reload', 'true');
+        window.location.reload();
+        return { default: () => null }; // Return empty component while reloading
+      }
+      sessionStorage.removeItem('chunk_reload');
+      // If already reloaded once, just re-throw
+      return importFn();
+    })
+  );
+};
+
+const UserDashboard = lazyWithRetry(() => import('./pages/user/UserDashboard'));
+const MechanicDashboard = lazyWithRetry(() => import('./pages/mechanic/MechanicDashboard'));
+const AdminDashboard = lazyWithRetry(() => import('./pages/admin/AdminDashboard'));
 
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
