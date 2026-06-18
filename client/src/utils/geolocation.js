@@ -8,8 +8,27 @@
  */
 export const getCurrentLocation = () => {
   return new Promise((resolve, reject) => {
+    // Helper to fallback to IP API
+    const fallbackToIP = async (errorMsg) => {
+      try {
+        const response = await fetch('https://ipapi.co/json/');
+        const data = await response.json();
+        if (data && data.latitude && data.longitude) {
+          resolve({
+            lat: data.latitude,
+            lng: data.longitude,
+            accuracy: 5000, // IP based is less accurate
+          });
+        } else {
+          reject(errorMsg);
+        }
+      } catch (e) {
+        reject(errorMsg);
+      }
+    };
+
     if (!navigator.geolocation) {
-      reject('Geolocation is not supported by your browser.');
+      fallbackToIP('Geolocation is not supported by your browser.');
       return;
     }
 
@@ -22,22 +41,21 @@ export const getCurrentLocation = () => {
         });
       },
       (error) => {
+        let msg = 'An unknown error occurred while fetching location.';
         switch (error.code) {
           case 1: // PERMISSION_DENIED
-            reject('Location permission denied. Please enable location access.');
+            msg = 'Location permission denied. Please enable location access.';
             break;
           case 2: // POSITION_UNAVAILABLE
-            reject('Location unavailable. Please check GPS.');
+            msg = 'Location unavailable. Please check GPS.';
             break;
           case 3: // TIMEOUT
-            reject('Location request timed out. Please try again.');
-            break;
-          default:
-            reject('An unknown error occurred while fetching location.');
+            msg = 'Location request timed out. Please try again.';
             break;
         }
+        fallbackToIP(msg);
       },
-      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
     );
   });
 };
