@@ -1314,16 +1314,20 @@ const verifyPayment = async (requestId, mechanicId) => {
     await redisClient.del(`request:active:${request.user_id}`);
     await redisClient.del(`mechanic:active:${mechanicId}`);
 
-    const { sendJobAlert } = require('../../utils/email');
-    const uQuery = await pool.query('SELECT email, full_name FROM users WHERE id = $1', [request.user_id]);
-    if (uQuery.rows.length > 0) {
-      await sendJobAlert(uQuery.rows[0].email, uQuery.rows[0].full_name, {
-        serviceType: 'Invoice Available',
-        locationArea: 'Payment Successful',
-        distance: '-',
-        description: 'Your payment was successfully verified. You can view the invoice in your Service History.',
-        vehicleInfo: '-'
-      });
+    try {
+      const { sendJobAlert } = require('../../utils/email');
+      const uQuery = await pool.query('SELECT email, full_name FROM users WHERE id = $1', [request.user_id]);
+      if (uQuery.rows.length > 0) {
+        await sendJobAlert(uQuery.rows[0].email, uQuery.rows[0].full_name, {
+          serviceType: 'Invoice Available',
+          locationArea: 'Payment Successful',
+          distance: '-',
+          description: 'Your payment was successfully verified. You can view the invoice in your Service History.',
+          vehicleInfo: '-'
+        });
+      }
+    } catch (emailErr) {
+      console.error('Failed to send payment verification email:', emailErr);
     }
 
     return updated.rows[0];

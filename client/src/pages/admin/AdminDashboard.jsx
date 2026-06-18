@@ -177,12 +177,15 @@ const AdminDashboard = () => {
           <div className="flex items-center gap-4">
             <NotificationBell />
             <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg shadow-md">
+              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg shadow-md cursor-pointer" onClick={() => navigate('/admin/settings')}>
                 {user?.full_name?.charAt(0)}
               </div>
               <div className="text-right">
                 <p className="text-sm font-bold text-dark">{user?.full_name}</p>
-                <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
+                <div className="flex flex-col items-end">
+                  <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
+                  <p className="text-xs text-primary cursor-pointer hover:underline" onClick={() => navigate('/admin/settings')}>View Profile</p>
+                </div>
               </div>
             </div>
           </div>

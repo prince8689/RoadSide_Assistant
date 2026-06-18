@@ -32,7 +32,8 @@ api.interceptors.response.use(
   async (error) => {
     // Network error
     if (!error.response) {
-      toast.error('No internet connection or server unreachable');
+      console.warn('API Network Error:', error.message);
+      // Suppressed intrusive toast for background connection failures
       return Promise.reject(error);
     }
 

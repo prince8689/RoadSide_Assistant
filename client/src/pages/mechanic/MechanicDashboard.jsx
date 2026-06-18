@@ -158,7 +158,15 @@ const MechanicDashboard = () => {
               {isAvailable ? 'Available' : 'Offline'}
             </button>
             <NotificationBell />
-            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg">{user?.full_name?.charAt(0)}</div>
+            <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
+              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg cursor-pointer shadow-md" onClick={() => navigate('/mechanic/profile')}>
+                {user?.full_name?.charAt(0)}
+              </div>
+              <div className="hidden lg:block text-right">
+                <p className="text-sm font-bold text-dark">{user?.full_name}</p>
+                <p className="text-xs text-gray-500 cursor-pointer hover:text-primary" onClick={() => navigate('/mechanic/profile')}>View Profile</p>
+              </div>
+            </div>
           </div>
         </header>
 

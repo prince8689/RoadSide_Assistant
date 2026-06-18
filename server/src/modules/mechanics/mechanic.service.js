@@ -159,9 +159,18 @@ const updateMechanicProfile = async (userId, data) => {
     values.push(JSON.stringify(data.documents));
   }
 
-  // Update phone in users table if provided
-  if (data.phone !== undefined) {
-    await query('UPDATE users SET phone = $1, updated_at = NOW() WHERE id = $2', [data.phone, userId]);
+  // Update phone and full_name in users table if provided
+  if (data.phone !== undefined || data.full_name !== undefined) {
+    const userUpdates = [];
+    const userValues = [];
+    let uIdx = 1;
+    if (data.phone !== undefined) { userUpdates.push(`phone = $${uIdx++}`); userValues.push(data.phone); }
+    if (data.full_name !== undefined) { userUpdates.push(`full_name = $${uIdx++}`); userValues.push(data.full_name); }
+    
+    userUpdates.push(`updated_at = NOW()`);
+    userValues.push(userId);
+    
+    await query(`UPDATE users SET ${userUpdates.join(', ')} WHERE id = $${uIdx}`, userValues);
   }
 
   let result;

@@ -168,7 +168,7 @@ const UserDashboard = () => {
               </div>
               <div className="hidden lg:block text-right">
                 <p className="text-sm font-bold text-dark">{user?.full_name}</p>
-                <p className="text-xs text-gray-500 cursor-pointer hover:text-primary">View Profile</p>
+                <p className="text-xs text-gray-500 cursor-pointer hover:text-primary" onClick={() => navigate('/dashboard/profile')}>View Profile</p>
               </div>
             </div>
           </div>

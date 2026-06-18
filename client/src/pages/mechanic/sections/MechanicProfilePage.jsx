@@ -24,6 +24,7 @@ const MechanicProfilePage = () => {
   useEffect(() => {
     if (profile) {
       setForm({
+        full_name: profile.full_name || '',
         business_name: profile.business_name || '',
         experience_years: profile.experience_years || '',
         specializations: profile.specializations || [],
@@ -70,6 +71,7 @@ const MechanicProfilePage = () => {
     setSubmitting(true);
     try {
       const payload = {
+        full_name: form.full_name,
         business_name: form.business_name,
         experience_years: parseInt(form.experience_years),
         specializations: form.specializations,
@@ -131,6 +133,16 @@ const MechanicProfilePage = () => {
         <form onSubmit={handleSubmit} className="space-y-6">
           
           <div className="grid md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-dark mb-2">Full Name *</label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="e.g. Ramesh Kumar"
+                value={form.full_name || ''}
+                onChange={e => setForm({...form, full_name: e.target.value})}
+              />
+            </div>
             <div>
               <label className="block text-sm font-semibold text-dark mb-2">Business/Shop Name *</label>
               <input
