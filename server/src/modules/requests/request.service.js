@@ -183,88 +183,112 @@ const createRequest = async (userId, data) => {
     request.vehicle = vehicleCheck.rows[0];
     request.category = category;
 
-    // Notifications
-    const msg = NotificationMessages.REQUEST_CREATED(category.name);
-    await sendRealTimeNotification(userId, msg.title, msg.message, msg.type);
+    // ========================================
+    // NOTIFICATIONS — sent in background AFTER response
+    // This ensures the user gets success confirmation FIRST,
+    // and the mechanic is notified only AFTER the request is confirmed.
+    // ========================================
+    const notificationData = {
+      requestId: request.id,
+      categoryName: category.name,
+      description: description || 'No description provided',
+      userName: userDetails.full_name,
+      userPhone: sharePhone ? userDetails.phone : null,
+      shareLocation,
+      sharePhone,
+      breakdown_lat,
+      breakdown_lng,
+      breakdown_address,
+      vehicle: request.vehicle,
+      finalMechanicId,
+      userId
+    };
 
-    // Step 1: Send real-time socket alert to the specifically selected mechanic
-    if (finalMechanicId) {
-      const isOnline = await redisClient.get(`user:online:${finalMechanicId}`);
-      
-      // Calculate masked location if consent is denied
-      // Add a small random offset (approx 1-3km) to lat/lng
-      const maskedLat = parseFloat(breakdown_lat) + (Math.random() - 0.5) * 0.02;
-      const maskedLng = parseFloat(breakdown_lng) + (Math.random() - 0.5) * 0.02;
-
-      sendToMechanic(finalMechanicId, EVENTS.NEW_REQUEST, {
-        requestId: request.id,
-        serviceType: category.name,
-        description: description || 'No description provided',
-        userName: userDetails.full_name,
-        userPhone: sharePhone ? userDetails.phone : null,
-        shareLocation,
-        location: { 
-          lat: shareLocation ? breakdown_lat : maskedLat, 
-          lng: shareLocation ? breakdown_lng : maskedLng, 
-          address: breakdown_address || 'Nearby Area' 
-        },
-        vehicleDetails: { 
-          make: request.vehicle.make, 
-          model: request.vehicle.model, 
-          year: request.vehicle.year 
-        }
-      });
-
-      // Also save notification to DB for offline mechanics
-      await sendRealTimeNotification(
-        finalMechanicId,
-        'Direct Booking Request',
-        `You have a new booking request for ${category.name}`,
-        'new_request'
-      );
-
-      // Send Email Notification
+    // Fire notifications asynchronously — do NOT await
+    setImmediate(async () => {
       try {
-        const mechQuery = await client.query('SELECT email, full_name FROM users WHERE id = $1', [finalMechanicId]);
-        if (mechQuery.rows.length > 0) {
-          const mech = mechQuery.rows[0];
-          await sendJobAlert(mech.email, mech.full_name, {
-            serviceType: category.name,
-            locationArea: breakdown_address,
-            distance: 'Nearby',
-            description: description || 'User requested roadside assistance',
-            vehicleInfo: `${request.vehicle.make} ${request.vehicle.model}`,
-            userName: userDetails.full_name,
-            userPhone: sharePhone ? userDetails.phone : null
+        // Notify user
+        const msg = NotificationMessages.REQUEST_CREATED(notificationData.categoryName);
+        sendRealTimeNotification(notificationData.userId, msg.title, msg.message, msg.type).catch(() => {});
+
+        // Notify mechanic
+        if (notificationData.finalMechanicId) {
+          const maskedLat = parseFloat(notificationData.breakdown_lat) + (Math.random() - 0.5) * 0.02;
+          const maskedLng = parseFloat(notificationData.breakdown_lng) + (Math.random() - 0.5) * 0.02;
+
+          sendToMechanic(notificationData.finalMechanicId, EVENTS.NEW_REQUEST, {
+            requestId: notificationData.requestId,
+            serviceType: notificationData.categoryName,
+            description: notificationData.description,
+            userName: notificationData.userName,
+            userPhone: notificationData.userPhone,
+            shareLocation: notificationData.shareLocation,
+            location: {
+              lat: notificationData.shareLocation ? notificationData.breakdown_lat : maskedLat,
+              lng: notificationData.shareLocation ? notificationData.breakdown_lng : maskedLng,
+              address: notificationData.breakdown_address || 'Nearby Area'
+            },
+            vehicleDetails: {
+              make: notificationData.vehicle.make,
+              model: notificationData.vehicle.model,
+              year: notificationData.vehicle.year
+            }
           });
+
+          // Save notification to DB for offline mechanics
+          sendRealTimeNotification(
+            notificationData.finalMechanicId,
+            'Direct Booking Request',
+            `You have a new booking request for ${notificationData.categoryName}`,
+            'new_request'
+          ).catch(() => {});
+
+          // Send email notification (non-blocking)
+          try {
+            const mechQuery = await query('SELECT email, full_name FROM users WHERE id = $1', [notificationData.finalMechanicId]);
+            if (mechQuery.rows.length > 0) {
+              const mech = mechQuery.rows[0];
+              sendJobAlert(mech.email, mech.full_name, {
+                serviceType: notificationData.categoryName,
+                locationArea: notificationData.breakdown_address,
+                distance: 'Nearby',
+                description: notificationData.description,
+                vehicleInfo: `${notificationData.vehicle.make} ${notificationData.vehicle.model}`,
+                userName: notificationData.userName,
+                userPhone: notificationData.userPhone
+              }).catch(() => {});
+            }
+          } catch (emailErr) {
+            logger.error('Failed to send job alert email: ' + emailErr.message);
+          }
         }
-      } catch (err) {
-        logger.error('Failed to send job alert email: ' + err.message);
+
+        // Emit socket event to admin
+        sendToAdmin(EVENTS.NEW_REQUEST_ADMIN, {
+          requestId: notificationData.requestId,
+          serviceType: notificationData.categoryName,
+          location: notificationData.breakdown_address
+        });
+
+        // Update Admin Dashboard
+        emitDashboardUpdate();
+
+        // Cache active request in Redis
+        redisClient.setex(
+          `request:active:${notificationData.userId}`,
+          3600,
+          JSON.stringify({
+            requestId: notificationData.requestId,
+            status: 'pending',
+            categoryName: notificationData.categoryName,
+            location: { lat: notificationData.breakdown_lat, lng: notificationData.breakdown_lng, address: notificationData.breakdown_address }
+          })
+        ).catch(() => {});
+
+      } catch (notifError) {
+        logger.error('Background notification error: ' + notifError.message);
       }
-    }
-
-    // Emit socket event to admin
-    // sendToAdmin handled in next steps via adminDashboardEmitter
-    sendToAdmin(EVENTS.NEW_REQUEST_ADMIN, { 
-      requestId: request.id, 
-      serviceType: category.name,
-      location: breakdown_address 
     });
-
-    // Update Admin Dashboard
-    emitDashboardUpdate();
-
-    // Cache active request in Redis
-    await redisClient.setex(
-      `request:active:${userId}`,
-      3600,
-      JSON.stringify({
-        requestId: request.id,
-        status: 'pending',
-        categoryName: category.name,
-        location: { lat: breakdown_lat, lng: breakdown_lng, address: breakdown_address }
-      })
-    );
 
     return request;
   } catch (error) {

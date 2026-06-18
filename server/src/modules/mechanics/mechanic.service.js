@@ -313,6 +313,8 @@ const getNearbyMechanics = async (lat, lng, radiusKm = 10) => {
       JOIN users u ON u.id = mp.user_id
       WHERE mp.is_available = true 
         AND mp.is_verified = true
+        AND mp.latitude IS NOT NULL
+        AND mp.longitude IS NOT NULL
         AND (
           6371 * acos(
             LEAST(1.0, GREATEST(-1.0, 
