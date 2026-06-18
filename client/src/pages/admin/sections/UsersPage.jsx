@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { FiSearch, FiFilter, FiEye, FiSlash, FiCheck, FiTrash2 } from 'react-icons/fi';
 import { toast } from 'react-hot-toast';
+import { useSelector } from 'react-redux';
 import useAdminStore from '../../../store/adminStore';
-import useAuthStore from '../../../store/authStore';
 import { updateUserStatus, deleteUser } from '../../../api/adminApi';
 import DataTable from '../../../components/admin/DataTable';
 import StatusBadge from '../../../components/admin/StatusBadge';
@@ -10,7 +10,7 @@ import Pagination from '../../../components/admin/Pagination';
 import Modal from '../../../components/admin/Modal';
 
 const UsersPage = () => {
-  const { user } = useAuthStore();
+  const { user } = useSelector((state) => state.auth);
   const { users, pagination, fetchUsers, isLoading } = useAdminStore();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
