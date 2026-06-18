@@ -130,7 +130,7 @@ const ActiveJobPage = () => {
     setIsVerifying(true);
     try {
       await axiosInst.post(`/requests/${activeJob.id}/verify-payment`);
-      toast.success('Payment approve successful!');
+      toast.success('Payment verified successfully!');
       fetchActiveJobs();
       navigate('/mechanic/history');
     } catch (err) {
