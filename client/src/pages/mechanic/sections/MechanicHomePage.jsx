@@ -268,178 +268,60 @@ const MechanicHomePage = () => {
           </button>
         </div>
 
-        {/* MAIN VIEW: Idle Map vs Active Job Map */}
-        {!activeJob ? (
-          /* Idle Map View */
-          <div className="bg-white rounded-2xl p-2 shadow-sm border border-gray-100 h-[300px] relative">
-            {!currentLocation ? (
-              <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                <FiMapPin size={32} className="mb-2 opacity-50" />
-                <p>Location unavailable. Go online to view map.</p>
-              </div>
-            ) : (
-              <GoogleMap
-                mapContainerStyle={mapContainerStyle}
-                options={mapOptions}
-                center={{ lat: currentLocation.lat, lng: currentLocation.lng }}
-                zoom={12}
-              >
-                <Marker 
-                  position={{ lat: currentLocation.lat, lng: currentLocation.lng }}
-                  icon={{
-                    path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
-                    fillColor: isAvailable ? '#28A745' : '#6C757D',
-                    fillOpacity: 1,
-                    strokeWeight: 3,
-                    strokeColor: '#FFFFFF',
-                    scale: 8,
-                  }}
-                />
-                <Circle
-                  center={{ lat: currentLocation.lat, lng: currentLocation.lng }}
-                  radius={profile?.service_radius_km ? profile.service_radius_km * 1000 : 10000} // Default 10km
-                  options={{
-                    fillColor: isAvailable ? '#28A745' : '#6C757D',
-                    fillOpacity: 0.05,
-                    strokeColor: isAvailable ? '#28A745' : '#6C757D',
-                    strokeOpacity: 0.2,
-                    strokeWeight: 1,
-                  }}
-                />
-              </GoogleMap>
-            )}
-            {isAvailable && (
-              <div className="absolute top-4 left-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg p-2 text-center text-sm font-medium text-green-700 shadow-sm border border-green-100">
-                Scanning for nearby requests...
-              </div>
-            )}
-          </div>
-        ) : (
-          /* Active Job Map and Controls */
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm border border-orange-100 overflow-hidden">
-              <div className="h-[250px] relative">
-                {currentLocation && activeJob.breakdown_lat ? (
-                  <GoogleMap
-                    mapContainerStyle={{ width: '100%', height: '100%' }}
-                    options={mapOptions}
-                    center={{ lat: currentLocation.lat, lng: currentLocation.lng }}
-                    zoom={13}
-                  >
-                    <Marker 
-                      position={{ lat: parseFloat(activeJob.breakdown_lat), lng: parseFloat(activeJob.breakdown_lng) }}
-                      icon={{
-                        path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
-                        fillColor: '#007BFF', // User is blue
-                        fillOpacity: 1, strokeWeight: 3, strokeColor: '#FFFFFF', scale: 8
-                      }}
-                    />
-                    {directions && (
-                      <DirectionsRenderer 
-                        directions={directions}
-                        options={{ suppressMarkers: true, polylineOptions: { strokeColor: '#FF8A00', strokeWeight: 5 } }}
-                      />
-                    )}
-                  </GoogleMap>
-                ) : (
-                  <div className="h-full bg-gray-100 flex items-center justify-center">Loading map...</div>
-                )}
-
-                <button 
-                  onClick={openNavigation}
-                  className="absolute bottom-4 right-4 bg-white text-primary px-4 py-2 rounded-xl shadow-lg font-bold flex items-center gap-2 hover:bg-gray-50"
-                >
-                  <FiNavigation /> Navigate
-                </button>
-              </div>
-
-              <div className="p-5">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-bold text-xl text-gray-900">{activeJob.service_type || 'Roadside Assistance'}</h3>
-                    <p className="text-gray-500 flex items-center gap-1 mt-1">
-                      <FiMapPin size={14} /> {activeJob.user_address || 'Customer Location'}
-                    </p>
-                  </div>
-                  <div className="bg-orange-50 text-orange-700 font-bold px-3 py-1 rounded-lg">
-                    {activeJob.status.replace('_', ' ').toUpperCase()}
-                  </div>
-                </div>
-
-                {activeJob.description && (
-                  <div className="bg-gray-50 rounded-xl p-3 mb-4 text-sm text-gray-700">
-                    <strong>Issue:</strong> {activeJob.description}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-3 mt-2">
-                  <button onClick={requestExactLocation} className="col-span-2 bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 mb-2">
-                    <FiMapPin size={18} /> Request Exact GPS Location
-                  </button>
-                  
-                  {activeJob.status === 'accepted' && (
-                    <button onClick={() => handleUpdateJobStatus('en_route')} className="col-span-2 bg-primary hover:bg-orange-600 text-white font-bold py-3 rounded-xl">
-                      I'm On My Way
-                    </button>
-                  )}
-                  {activeJob.status === 'en_route' && (
-                    <button onClick={() => handleUpdateJobStatus('arrived')} className="col-span-2 bg-primary hover:bg-orange-600 text-white font-bold py-3 rounded-xl">
-                      I've Arrived
-                    </button>
-                  )}
-                  {activeJob.status === 'arrived' && (
-                    <button onClick={() => handleUpdateJobStatus('in_progress')} className="col-span-2 bg-primary hover:bg-orange-600 text-white font-bold py-3 rounded-xl">
-                      Start Job
-                    </button>
-                  )}
-                  
-                  {activeJob.status === 'awaiting_payment' && (
-                    <div className="col-span-2 bg-orange-50 border border-orange-200 text-orange-700 font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-                      Waiting for Customer Payment...
-                    </div>
-                  )}
-
-                  {activeJob.status === 'payment_verification' && (
-                    <div className="col-span-2 bg-blue-50 border border-blue-200 rounded-xl p-4">
-                      <h4 className="font-bold text-blue-900 mb-2">Verify Online Payment</h4>
-                      <p className="text-sm text-blue-700 mb-3">Customer has uploaded an online payment receipt. Please verify.</p>
-                      {activeJob.payment_receipt_url && (
-                        <a href={`${import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001'}${activeJob.payment_receipt_url}`} target="_blank" rel="noreferrer" className="block w-full text-center bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 rounded-xl mb-2">
-                          View Receipt
-                        </a>
-                      )}
-                      <button 
-                        onClick={async () => {
-                          try {
-                            await axiosInst.post(`/requests/${activeJob.id}/verify-payment`);
-                            toast.success('Payment verified! Job complete.');
-                            fetchActiveJobs();
-                          } catch (err) {
-                            toast.error('Failed to verify payment');
-                          }
-                        }}
-                        className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 rounded-xl"
-                      >
-                        Approve Payment & Complete Job
-                      </button>
-                    </div>
-                  )}
-                  {activeJob.status === 'completed' && (
-                    <div className="col-span-2 bg-green-50 text-green-700 font-bold py-3 rounded-xl flex items-center justify-center">
-                      Job Completed
-                    </div>
-                  )}
-
-{activeJob.status === 'in_progress' && (
-                    <button onClick={() => handleUpdateJobStatus('awaiting_payment')} className="col-span-2 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-                      <FiCheck size={20} /> Request Payment
-                    </button>
-                  )}
-                </div>
-              </div>
+        {/* MAIN VIEW: Idle Map (Always showing, Active Job is on its own tab) */}
+        <div className="bg-white rounded-2xl p-2 shadow-sm border border-gray-100 h-[300px] relative">
+          {!currentLocation ? (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400">
+              <FiMapPin size={32} className="mb-2 opacity-50" />
+              <p>Location unavailable. Go online to view map.</p>
             </div>
-          </div>
-        )}
+          ) : (
+            <GoogleMap
+              mapContainerStyle={mapContainerStyle}
+              options={mapOptions}
+              center={{ lat: currentLocation.lat, lng: currentLocation.lng }}
+              zoom={12}
+            >
+              <Marker 
+                position={{ lat: currentLocation.lat, lng: currentLocation.lng }}
+                icon={{
+                  path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
+                  fillColor: isAvailable ? '#28A745' : '#6C757D',
+                  fillOpacity: 1,
+                  strokeWeight: 3,
+                  strokeColor: '#FFFFFF',
+                  scale: 8,
+                }}
+              />
+              <Circle
+                center={{ lat: currentLocation.lat, lng: currentLocation.lng }}
+                radius={profile?.service_radius_km ? profile.service_radius_km * 1000 : 10000} // Default 10km
+                options={{
+                  fillColor: isAvailable ? '#28A745' : '#6C757D',
+                  fillOpacity: 0.05,
+                  strokeColor: isAvailable ? '#28A745' : '#6C757D',
+                  strokeOpacity: 0.2,
+                  strokeWeight: 1,
+                }}
+              />
+            </GoogleMap>
+          )}
+          {isAvailable && (
+            <div className="absolute top-4 left-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg p-2 text-center text-sm font-medium text-green-700 shadow-sm border border-green-100">
+              Scanning for nearby requests...
+            </div>
+          )}
+          {activeJob && (
+            <div className="absolute bottom-4 left-4 right-4 text-center">
+              <button 
+                onClick={() => navigate('/mechanic/job')}
+                className="bg-orange-500 hover:bg-orange-600 text-white shadow-lg font-bold py-3 px-6 rounded-xl animate-pulse flex items-center justify-center gap-2 mx-auto"
+              >
+                <FiActivity /> Go to Active Job
+              </button>
+            </div>
+          )}
+        </div>
         </>
         )}
       </div>
