@@ -443,7 +443,8 @@ const getMechanicStats = async (userId) => {
     `SELECT
       COUNT(*)::integer AS total_jobs,
       COUNT(CASE WHEN status = 'completed' THEN 1 END)::integer AS completed_jobs,
-      COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::integer AS cancelled_jobs
+      COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::integer AS cancelled_jobs,
+      SUM(CASE WHEN status = 'completed' THEN final_price ELSE 0 END) AS total_earnings
     FROM service_requests
     WHERE mechanic_id = $1`,
     [userId]
@@ -453,12 +454,14 @@ const getMechanicStats = async (userId) => {
     total_jobs: 0,
     completed_jobs: 0,
     cancelled_jobs: 0,
+    total_earnings: 0,
   };
 
   return {
     total_jobs: stats.total_jobs,
     completed_jobs: stats.completed_jobs,
     cancelled_jobs: stats.cancelled_jobs,
+    total_earnings: stats.total_earnings || 0,
     avg_rating: parseFloat(mechanicProfile.rating) || 0,
   };
 };
