@@ -22,10 +22,10 @@ const FinancialsPage = () => {
         getAdminSettings()
       ]);
       setStats(statsRes.data.data || statsRes.data);
-      if (settingsRes.data.data?.settings) {
+      if (settingsRes.data?.settings) {
         setSettings({
-          platform_fee_value: settingsRes.data.data.settings.platform_fee_value,
-          tax_percentage: settingsRes.data.data.settings.tax_percentage
+          platform_fee_value: settingsRes.data.settings.platform_fee_value,
+          tax_percentage: settingsRes.data.settings.tax_percentage
         });
       }
     } catch (error) {

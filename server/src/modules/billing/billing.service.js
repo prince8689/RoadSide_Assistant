@@ -89,10 +89,10 @@ const generateInvoice = async (requestId, mechanicId, items) => {
             );
         }
 
-        // Change request status to awaiting_payment
+        // Change request status to awaiting_payment and set final price
         await client.query(
-            `UPDATE service_requests SET status = 'awaiting_payment', updated_at = NOW() WHERE id = $1`,
-            [requestId]
+            `UPDATE service_requests SET status = 'awaiting_payment', final_price = $2, updated_at = NOW() WHERE id = $1`,
+            [requestId, totalAmount]
         );
 
         await client.query('COMMIT');
