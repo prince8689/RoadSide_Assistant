@@ -43,8 +43,12 @@ const EarningsPage = () => {
       {/* Summary Cards Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-2xl text-white shadow-md">
-          <h3 className="text-green-100 text-sm font-semibold mb-1">Total Earned</h3>
-          <div className="text-3xl font-bold">₹{stats?.total_earnings || 0}</div>
+          <h3 className="text-green-100 text-sm font-semibold mb-1">Today Earned</h3>
+          <div className="text-3xl font-bold">₹{
+            completedJobs
+              .filter(j => new Date(j.created_at).toDateString() === new Date().toDateString())
+              .reduce((sum, j) => sum + Number(j.final_price || 0), 0)
+          }</div>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
           <h3 className="text-muted text-sm font-semibold mb-1">This Month</h3>
