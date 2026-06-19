@@ -51,7 +51,7 @@ const RequestsPage = () => {
     { 
       header: 'Amount', 
       accessor: 'price',
-      render: (row) => <span className="font-bold">₹{row.final_price || '-'}</span>
+      render: (row) => <span className="font-bold">₹{row.invoice_amount || row.final_price || '0.00'}</span>
     },
     { 
       header: 'Date', 
@@ -122,7 +122,7 @@ const RequestsPage = () => {
                 </div>
                 <div className="flex items-center justify-between pt-2">
                   <span className="text-gray-500 text-sm">Final Price</span>
-                  <span className="text-xl font-bold text-primary">₹{selectedReq.final_price || '-'}</span>
+                  <span className="text-xl font-bold text-primary">₹{selectedReq.invoice?.total_amount || selectedReq.invoice_amount || selectedReq.final_price || '0.00'}</span>
                 </div>
               </div>
 

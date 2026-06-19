@@ -489,12 +489,14 @@ const getAllRequests = async (filters) => {
       v.model AS vehicle_model,
       v.license_plate AS vehicle_license_plate,
       sc.name AS category_name,
-      sc.slug AS category_slug
+      sc.slug AS category_slug,
+      i.total_amount AS invoice_amount
     FROM service_requests sr
     JOIN users u ON u.id = sr.user_id
     LEFT JOIN users m ON m.id = sr.mechanic_id
     JOIN vehicles v ON v.id = sr.vehicle_id
     JOIN service_categories sc ON sc.id = sr.category_id
+    LEFT JOIN invoices i ON i.request_id = sr.id
     ${whereClause}
     ORDER BY sr.created_at DESC
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

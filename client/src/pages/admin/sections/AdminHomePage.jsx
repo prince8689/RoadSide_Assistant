@@ -84,7 +84,7 @@ const AdminHomePage = () => {
                       <td className="p-4 text-sm font-medium text-dark">{req.service?.name || 'Service'}</td>
                       <td className="p-4 text-sm text-gray-600">{req.user?.full_name}</td>
                       <td className="p-4 text-sm"><StatusBadge status={req.status} /></td>
-                      <td className="p-4 text-sm font-bold text-dark text-right">₹{req.final_price || '-'}</td>
+                      <td className="p-4 text-sm font-bold text-dark text-right">₹{req.invoice_amount || req.final_price || '0.00'}</td>
                     </tr>
                   ))
                 )}
