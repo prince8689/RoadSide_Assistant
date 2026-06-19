@@ -165,6 +165,10 @@ const updateAdminSettingsSchema = Joi.object({
     'number.base': 'Platform fee must be a number',
     'number.min': 'Platform fee cannot be negative',
   }),
+  platform_fee_type: Joi.string().valid('percentage', 'flat').messages({
+    'string.base': 'Platform fee type must be a string',
+    'any.only': 'Platform fee type must be either percentage or flat',
+  }),
   tax_percentage: Joi.number().min(0).max(100).messages({
     'number.base': 'Tax percentage must be a number',
     'number.min': 'Tax percentage cannot be negative',

@@ -824,6 +824,10 @@ const updateSettings = async (data) => {
     updates.push(`platform_fee_value = $${paramIndex++}`);
     values.push(data.platform_fee_value);
   }
+  if (data.platform_fee_type !== undefined) {
+    updates.push(`platform_fee_type = $${paramIndex++}`);
+    values.push(data.platform_fee_type);
+  }
   if (data.tax_percentage !== undefined) {
     updates.push(`tax_percentage = $${paramIndex++}`);
     values.push(data.tax_percentage);

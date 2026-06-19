@@ -41,7 +41,8 @@ const FinancialsPage = () => {
     try {
       await updateAdminSettings({
         platform_fee_value: Number(settings.platform_fee_value),
-        tax_percentage: Number(settings.tax_percentage)
+        tax_percentage: Number(settings.tax_percentage),
+        platform_fee_type: 'flat'
       });
       toast.success('Billing settings updated successfully!');
     } catch (error) {
