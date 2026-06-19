@@ -42,7 +42,7 @@ const getAllUsers = async (filters) => {
   }
 
   // Filter by active status
-  if (filters.is_active !== undefined) {
+  if (filters.is_active !== undefined && filters.is_active !== '') {
     const isActive = filters.is_active === 'true' || filters.is_active === true;
     conditions.push(`u.is_active = $${paramIndex++}`);
     values.push(isActive);
